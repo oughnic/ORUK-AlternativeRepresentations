@@ -1,0 +1,110 @@
+# .gitignore for ORUK Alternative Representations
+# C# / .NET 8 project targeting Linux, Docker, and Windows
+# Generated for Visual Studio 2022 and the .NET CLI
+
+## -----------------------------------------------------------------------
+## Build output
+## -----------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+
+## -----------------------------------------------------------------------
+## Visual Studio files
+## -----------------------------------------------------------------------
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Visual Studio Code
+.vscode/
+
+# Rider
+.idea/
+*.sln.iml
+
+## -----------------------------------------------------------------------
+## .NET / MSBuild
+## -----------------------------------------------------------------------
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+nuget.config.local
+
+# dotnet tool manifests (local, not shared)
+# (keep .config/dotnet-tools.json if it defines shared dev tools)
+
+## -----------------------------------------------------------------------
+## Test results and coverage
+## -----------------------------------------------------------------------
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+lcov.info
+
+## -----------------------------------------------------------------------
+## ASP.NET Core / Kestrel
+## -----------------------------------------------------------------------
+# Secrets (never commit)
+**/appsettings.*.json
+!**/appsettings.json
+!**/appsettings.Development.json.example
+secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+## -----------------------------------------------------------------------
+## Docker
+## -----------------------------------------------------------------------
+.dockerignore.local
+
+## -----------------------------------------------------------------------
+## Environment / secrets
+## -----------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+## -----------------------------------------------------------------------
+## OS artefacts
+## -----------------------------------------------------------------------
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+
+## -----------------------------------------------------------------------
+## Logs
+## -----------------------------------------------------------------------
+*.log
+logs/
+
+## -----------------------------------------------------------------------
+## Temporary files
+## -----------------------------------------------------------------------
+tmp/
+temp/
