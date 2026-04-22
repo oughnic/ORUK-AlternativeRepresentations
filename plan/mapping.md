@@ -153,11 +153,56 @@ The ORUK `Service` entity maps to `schema:GovernmentService` (or `schema:Service
 
 ## 9. TaxonomyTerm → additionalType / keywords
 
+The handling of taxonomy terms is the most complex vocabulary-mapping challenge in the pipeline.  Full analysis is in [terminology.md](terminology.md); the rules applied during transformation are summarised here.
+
+### Mapping Rules (applied in priority order)
+
+| Priority | Condition | Schema.org output |
+|----------|-----------|-------------------|
+| 1 | `term_uri` is present | `additionalType = term_uri`; also append `name` to `keywords` |
+| 2 | `code` present AND `vocabulary` is in the URI registry | Construct URI from registry template; use as `additionalType`; append `name` to `keywords` |
+| 3 | `code` or `name` present; `vocabulary` unknown or absent | `keywords += name` only (no `additionalType`) |
+
+### Field Mapping
+
 | ORUK field | Schema.org property | Notes |
 |------------|---------------------|-------|
-| `name` | `keywords` | Free-text taxonomy term name. |
-| `code` (SNOMED, etc.) | `additionalType` | URL or `DefinedTerm` if a resolvable URI exists. |
-| `taxonomy_id` | `additionalProperty` | Name: `taxonomyId`. |
+| `term_uri` | `additionalType` | Preferred: use the URI directly. |
+| `name` | `keywords` | Always included as a keyword regardless of whether a URI is available. |
+| `code` + known `vocabulary` | `additionalType` | URI constructed from the [vocabulary registry](terminology.md#32-vocabulary-to-uri-registry). |
+| `taxonomy_id` | `additionalProperty` | Name: `taxonomyId` — preserves provenance. |
+| `parent_id` chain | `keywords` | Hierarchical path (e.g. `"Health > Mental Health > Counselling"`) appended to `keywords`. |
+
+### DefinedTerm Pattern
+
+When a URI exists but is not a standard Schema.org type URL, emit a `DefinedTerm` node to preserve the human label:
+
+```json
+{
+  "additionalType": {
+    "@type": "DefinedTerm",
+    "@id": "https://standards.esd.org.uk/?uri=esd%3Aservice%2F841",
+    "name": "Day Opportunities",
+    "inDefinedTermSet": "https://standards.esd.org.uk/"
+  }
+}
+```
+
+### Known Taxonomy URI Prefixes
+
+The `taxonomy` field (ORUK v3) is free text. Values are matched case-insensitively after trimming.
+
+| `taxonomy` value | URI template |
+|------------------|--------------|
+| `esdstandards` / `esd standards` | `https://standards.esd.org.uk/?uri=esd%3Aservice%2F{code}` |
+| `snomed` / `snomed ct` | `http://snomed.info/sct/{code}` |
+| `loinc` | `http://loinc.org/{code}` |
+| `icd-10` | `http://hl7.org/fhir/sid/icd-10/{code}` |
+| Anything else | No URI — `keywords` only |
+
+### Future FHIR Mapping Note
+
+When producing HL7 FHIR `HealthcareService` output, these same taxonomy terms must be translated to `CodeableConcept` objects (see [terminology.md § 4](terminology.md#4-fhir-healthcareservice--vocabulary-mapping-issues)).  A FHIR Terminology Server (e.g. NHS England Ontoserver) is required for the ESD → SNOMED CT translation step.  See [terminology.md § 5](terminology.md#5-fhir-terminology-server--role-in-the-architecture) for the architecture.
 
 ---
 

@@ -112,6 +112,19 @@ This is the guiding principle for all data handling:
 
 ---
 
+## Diagrams
+
+- All diagrams in documentation and planning files **must use [Mermaid](https://mermaid.js.org/) embedded in Markdown** code fences (` ```mermaid `).
+- Do not use ASCII art, image files, or external diagram tools for diagrams that can be expressed in Mermaid.
+- Preferred diagram types:
+  - **`flowchart`** for component and data-flow diagrams.
+  - **`sequenceDiagram`** for interaction and request/response flows.
+  - **`graph`** for relationship and dependency diagrams.
+  - **`classDiagram`** for C# class/interface relationships.
+- Mermaid diagrams render natively in GitHub pull requests, issues, and wikis.
+
+---
+
 ## Related Standards
 
 See [`plan/standards/`](plan/standards/README.md) for full descriptions of:
@@ -125,3 +138,4 @@ See [`plan/standards/`](plan/standards/README.md) for full descriptions of:
 
 - [Technical approach](plan/approach.md)
 - [ORUK → Schema.org field mapping](plan/mapping.md)
+- [Terminology and vocabulary mapping](plan/terminology.md)
