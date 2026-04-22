@@ -19,11 +19,11 @@ The service must be deployable in any of the following environments without code
 | Platform | Mechanism |
 |----------|-----------|
 | **Heroku** | ASP.NET Core Minimal API; bind to `$PORT`; `Procfile` entry. |
-| **Azure Function** | HTTP-triggered Azure Function using the .NET 8 isolated worker model. |
+| **Azure Function** | HTTP-triggered Azure Function using the .NET 10 isolated worker model. |
 | **GCP Cloud Function** | GCP Functions Framework for .NET adapter. |
 | **AWS Lambda** | AWS Lambda .NET runtime adapter. |
 | **Docker / Linux** | Multi-stage `Dockerfile`; `linux/amd64` target; runs via `dotnet` CLI. |
-| **Windows** | Standard .NET 8 self-contained executable. |
+| **Windows** | Standard .NET 10 self-contained executable. |
 
 The core business logic lives in a shared class library (`OrukTransformer.Core`).  Each deployment target references this library via a thin adapter project.
 
@@ -31,14 +31,16 @@ The core business logic lives in a shared class library (`OrukTransformer.Core`)
 
 ## Technology Stack
 
-- **Language:** C# 12
-- **Runtime:** .NET 8 LTS
+- **Language:** C# 13
+- **Runtime:** .NET 10 LTS
 - **HTTP framework:** ASP.NET Core Minimal API (for Heroku / Docker deployments)
-- **Serialisation:** `System.Text.Json` (not Newtonsoft.Json unless unavoidable)
+- **Serialisation:** `System.Text.Json` — **always preferred, even on .NET 10**; do not introduce `Newtonsoft.Json` unless a specific third-party dependency forces it and there is no alternative.
 - **HTTP client:** `IHttpClientFactory` / `HttpClient` (named clients registered in DI)
 - **Logging:** `Microsoft.Extensions.Logging` with structured logging
 - **Testing:** xUnit + NSubstitute (or Moq) for unit tests; no UI test frameworks needed
 - **CI:** GitHub Actions
+
+> **ORUK Validator policy:** The `OpenReferralUK/oruk-validator` repository uses `Newtonsoft.Json.Schema` for ORUK schema validation.  **We will not fork or refactor the validator to align it with this project.**  Instead, ORUK entity POCOs are auto-generated from the published OpenAPI schema using `NJsonSchema.CodeGeneration.CSharp`, and feed-response validation is implemented independently using `System.Text.Json`.  See [terminology.md § 8](plan/terminology.md#8-oruk-validator--nuget-package-assessment) for the full assessment.
 
 ---
 
@@ -94,14 +96,20 @@ This is the guiding principle for all data handling:
 ### Configuration
 
 - All configuration (feed URLs, base URL, timeouts) flows through `IConfiguration` / `IOptions<T>` — never hardcoded.
-- `feeds.json` is the primary configuration file for endpoint URLs:
+- `feeds.json` is the primary configuration file for endpoint URLs.  Each entry is either a simple URL string (a single ORUK endpoint) or an object with a `type` field to support the **combined ORUK aggregator** feed:
 
 ```json
 [
   "https://example-council.gov.uk/api/services",
-  "https://another-provider.org.uk/oruk/services"
+  "https://another-provider.org.uk/oruk/services",
+  {
+    "type": "aggregator",
+    "url": "https://this-service.example.com/oruk/services"
+  }
 ]
 ```
+
+When `type` is `"aggregator"` the entry points at this service's own combined ORUK endpoint (`GET /oruk/services`), allowing downstream consumers to treat the aggregator itself as a single ORUK feed.  See [approach.md – Feed Aggregator](plan/approach.md#feed-aggregator-endpoint) for details.
 
 ### Testing
 

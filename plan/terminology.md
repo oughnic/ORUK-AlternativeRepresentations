@@ -383,7 +383,7 @@ The `OpenReferralUK/oruk-validator` repository is a **.NET 10 / C# 13+ ASP.NET C
 The **`OpenReferralApi.Core`** library contains:
 
 - Validation-related **C# models** (`ValidationResult`, `OpenApiValidationResult`, `SchemaValidationDetail`, etc.) — these are validation-infrastructure models, **not** ORUK entity POCOs.
-- `IJsonValidatorService` / `JsonValidatorService` — validates raw JSON payloads against the ORUK JSON Schema using `Newtonsoft.Json.Schema`.
+- `IJsonValidatorService` / `JsonValidatorService` — validates raw JSON payloads against the ORUK JSON Schema using **`Newtonsoft.Json.Schema 4.0.1`**.
 - `SchemaResolverService` / `RemoteSchemaLoader` — fetches and caches the ORUK JSON Schema files from `https://openreferraluk.org/specifications/` at startup.
 - Supporting services for OpenAPI spec parsing, endpoint discovery, feed management, and observability.
 
@@ -393,50 +393,50 @@ Critically, the validator **does not contain typed C# record/class models for OR
 
 | Component | Extractable as NuGet? | Notes |
 |-----------|-----------------------|-------|
-| `IJsonValidatorService` + `JsonValidatorService` | ✅ Yes — high value | Validates incoming feed responses before transformation. |
-| `SchemaResolverService` + `RemoteSchemaLoader` | ✅ Yes — useful | Fetches and caches the ORUK JSON Schema from `openreferraluk.org/specifications/`. |
-| `ValidationResult` and related models | ✅ Yes | Structured validation output. |
-| Typed ORUK entity POCOs | ❌ Not present | Must be generated or hand-authored separately (see §8.4). |
+| `IJsonValidatorService` + `JsonValidatorService` | ⚠️ Possible but not adopted | Uses `Newtonsoft.Json.Schema`; this project uses `System.Text.Json` exclusively. |
+| `SchemaResolverService` + `RemoteSchemaLoader` | ⚠️ Possible but not adopted | As above — Newtonsoft dependency. |
+| `ValidationResult` and related models | ✅ Models only | Could be extracted with no Newtonsoft dependency. |
+| Typed ORUK entity POCOs | ❌ Not present | Must be generated from the published OpenAPI schema (see §8.4). |
 | MongoDB integration | ❌ Not needed | Feed-registry storage — not relevant to the transformer. |
 | OpenAPI validation logic | ❌ Not needed | Validates API specs, not feed data. |
 
-### 8.3 Dependency Concerns
+### 8.3 Policy: No Refactoring of the Validator
 
-The current `OpenReferralApi.Core.csproj` targets **net10.0** and depends on `Newtonsoft.Json.Schema 4.0.1`.  The transformer project targets **net8.0** and prefers `System.Text.Json`.  Mixing these would introduce:
+**This project will not fork or refactor `OpenReferralUK/oruk-validator`.**
 
-- A runtime version constraint (the package would force net10.0).
-- A `Newtonsoft.Json` dependency that conflicts with the transformer's preference for `System.Text.Json`.
+Although both projects now target **.NET 10**, the validator's core validation logic depends on `Newtonsoft.Json.Schema` for JSON Schema evaluation.  This project uses `System.Text.Json` exclusively (see copilot-instructions.md).  Introducing a `Newtonsoft.Json` dependency would conflict with this principle and add unnecessary complexity.
 
-These differences make a direct NuGet dependency impractical until the library is decoupled from MongoDB and Newtonsoft, or until the transformer is upgraded to net10.0.
+The validator is a separate, independently maintained tool.  It should continue to be used as-is for its intended purpose (validating ORUK feed endpoints via its own API), not as a library component inside this transformer.
 
 ### 8.4 Recommended Path Forward
 
 ```mermaid
 flowchart TD
-    A["OpenReferralUK/oruk-validator\n(GitHub)"] -->|"Download schema files\n(CI pipeline step)"| B["ORUK JSON Schema files\nopenreferraluk.org/specifications/3.0/openapi.json"]
-    B -->|"NJsonSchema CLI\nor T4 template"| C["Auto-generated\nC# POCOs\nOrukTransformer.Core/Models/Oruk/"]
-    A -->|"Raise GitHub issue\nor fork"| D["Proposed future package\nOpenReferralUK.Validation\n(net8 / System.Text.Json)"]
-    D -->|"Reference via NuGet"| E["OrukTransformer.Core\nuses IJsonValidatorService"]
+    SCHEMA["ORUK OpenAPI schema\nhttps://openreferraluk.org/specifications/3.0/openapi.json"]
+    GEN["NJsonSchema CLI\n(CI pipeline step)"]
+    POCOS["Auto-generated C# records\nOrukTransformer.Core/Models/Oruk/"]
+    VAL_IMPL["Custom IOrukValidator\nusing System.Text.Json\n+ JsonSchema.Net (draft 2020-12)"]
+    CORE["OrukTransformer.Core\nuses generated POCOs\n+ IOrukValidator"]
+
+    SCHEMA -->|"Download + generate"| GEN
+    GEN --> POCOS
+    POCOS --> CORE
+    SCHEMA --> VAL_IMPL
+    VAL_IMPL --> CORE
 ```
 
-**Short-term (no NuGet package available):**
+**Implementation approach:**
 
-1. Use `NJsonSchema.CodeGeneration.CSharp` (or `dotnet-codegeneration`) to auto-generate C# POCOs from the published ORUK OpenAPI schema at `https://openreferraluk.org/specifications/3.0/openapi.json`.
-2. Automate regeneration in CI when the schema version changes.
-3. Integrate validation by downloading the validator's `JsonValidatorService` source as a Git subtree and adapting it to `System.Text.Json`.
-
-**Medium-term:**
-
-Raise a GitHub issue on `OpenReferralUK/oruk-validator` proposing:
-- Extraction of a `OpenReferralUK.Models` package with ORUK entity POCOs generated from the published schema.
-- Extraction of a `OpenReferralUK.Validation` package targeting net8 / `System.Text.Json`, removing the MongoDB and OpenAPI-spec-validation concerns.
+1. **ORUK entity POCOs** — use `NJsonSchema.CodeGeneration.CSharp` to generate `record` types from `https://openreferraluk.org/specifications/3.0/openapi.json`.  Automate regeneration in CI so models always track the current schema version.
+2. **Feed-response validation** — implement `IOrukValidator` / `OrukSchemaValidator` using [`JsonSchema.Net`](https://docs.json-everything.net/schema/basics/) (a `System.Text.Json`-native JSON Schema library supporting draft 2020-12).  This replicates the validator's schema-checking behaviour without the `Newtonsoft.Json.Schema` dependency.
+3. **Upstream engagement** — raise a GitHub issue on `OpenReferralUK/oruk-validator` proposing extraction of a minimal `OpenReferralUK.Models` NuGet package (POCOs only, no Newtonsoft) to improve ecosystem interoperability.  This is a community contribution opportunity, not a blocker.
 
 ### 8.5 Validation Integration Pattern
 
 ```mermaid
 sequenceDiagram
     participant F as HttpFeedFetcher
-    participant V as IJsonValidatorService
+    participant V as IOrukValidator (JsonSchema.Net)
     participant T as Transformer
     participant L as ILogger
 
@@ -465,7 +465,7 @@ sequenceDiagram
 | Multi-level `parent_id` hierarchy lost in Schema.org | Low | Emit delimited breadcrumb path in `keywords` |
 | Multiple taxonomies per service (ESD + local) | Low | Emit all ESD terms as `additionalType`; local terms as `keywords` |
 | FHIR ValueSet binding failures | Medium | Validate with TS `$validate-code` before writing; fall back to `text` |
-| Validator is net10 / Newtonsoft — not directly reusable | Medium | Generate POCOs via NJsonSchema; adapt `JsonValidatorService` logic |
+| Validator uses Newtonsoft.Json.Schema — not adopted | Medium | Implement `IOrukValidator` using `JsonSchema.Net` (System.Text.Json-native); validator will not be refactored |
 
 ---
 
@@ -482,4 +482,5 @@ sequenceDiagram
 - UK Core HealthcareService profile: <https://simplifier.net/hl7fhirukcorer4/ukccore-healthcareservice>
 - OpenReferralUK oruk-validator (GitHub): <https://github.com/OpenReferralUK/oruk-validator>
 - NJsonSchema code generation: <https://github.com/RicoSuter/NJsonSchema>
+- JsonSchema.Net (System.Text.Json-native JSON Schema): <https://docs.json-everything.net/schema/basics/>
 - Bristol Open Place Directory: <https://bristol.openplace.directory/o/OpenReferralService/v3>
