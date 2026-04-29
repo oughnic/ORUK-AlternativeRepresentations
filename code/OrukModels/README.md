@@ -15,8 +15,8 @@ ASP.NET Core or any HTTP framework, and is intentionally thin — pure model cla
 - **EF-ready:** Entity model types use `class` with mutable `{ get; set; }` properties and `virtual`
   navigation properties to support future Entity Framework Core integration without a schema migration.
   Primary keys use `string` rather than `Guid`.
-- **Pure value objects use `record`:** Immutable response wrappers and feed extension types
-  (e.g. `OrukPage<T>`, `OrukPcMetadata`) use `record` with `{ get; init; }` properties.
+- **Pure value objects use `record`:** Immutable response wrappers and extension types
+  (e.g. `OrukPage<T>`, `OrukExtensionProperty`) use `record` with `{ get; init; }` properties.
 - **System.Text.Json:** All JSON mapping uses `[JsonPropertyName]` attributes.
   `Newtonsoft.Json` is not used.
 
@@ -72,10 +72,48 @@ classDiagram
 | `OrukAccessibility` | `accessibility` | Accessibility feature at a location |
 | `OrukExternalIdentifier` | `external_identifier` | UPRN, USRN, etc. |
 | `OrukMetadata` | `metadata` | Change audit trail |
-| `OrukPcMetadata` | `pc_metadata` | Bristol OPD extension (non-standard) |
-| `OrukPcTargetAudience` | `pc_targetAudience` | Bristol OPD extension (non-standard) |
+| `OrukExtensionProperty` | _(any unrecognised field)_ | Generic vendor extension: namespace + key + raw JSON value |
 
-## Usage
+## Extension Mechanism
+
+ORUK feeds from some publishing platforms include proprietary fields not defined in the HSDS v3
+specification (for example, PlaceCube's `pc_metadata` and `pc_targetAudience` fields in the
+Bristol Open Place Directory).
+
+Rather than introducing bespoke C# types for each vendor's extensions, `OrukService` uses the
+standard `System.Text.Json` `[JsonExtensionData]` attribute to capture all unrecognised JSON
+properties automatically.  These are then surfaced through the typed `Extensions` property as a
+list of `OrukExtensionProperty` records.
+
+### `OrukExtensionProperty`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Namespace` | `string` | Vendor prefix derived by splitting the field name on the first `_` (e.g. `"pc"` from `pc_metadata`). Empty string if no prefix. |
+| `Key` | `string` | The remainder after the prefix (e.g. `"metadata"` from `pc_metadata`). |
+| `RawKey` | `string` | The original JSON field name exactly as received (e.g. `"pc_metadata"`). |
+| `Value` | `JsonElement` | Raw JSON value — scalar, object, or array — without loss of fidelity. |
+
+### Example (Bristol OPD / PlaceCube feed)
+
+```csharp
+// Retrieve the PlaceCube metadata extension
+var pcMeta = service.Extensions
+    .SingleOrDefault(e => e.Namespace == "pc" && e.Key == "metadata");
+
+// Read a scalar field from the nested object
+var assuredBy = pcMeta?.Value.GetProperty("assured_by").GetString();
+
+// Retrieve the PlaceCube target-audience array extension
+var audiences = service.Extensions
+    .SingleOrDefault(e => e.Namespace == "pc" && e.Key == "targetAudience");
+
+var audienceTypes = audiences?.Value.EnumerateArray()
+    .Select(el => el.GetProperty("audienceType").GetString())
+    .ToList();
+```
+
+This approach works for any vendor prefix and any JSON value shape without requiring model changes.
 
 ```csharp
 using System.Text.Json;

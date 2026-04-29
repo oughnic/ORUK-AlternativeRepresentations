@@ -199,7 +199,7 @@ All code lives under `code/` at the repository root.  Do not create source files
 ### Model Layer (`OrukModels`)
 
 - **Entity models** (those that map to ORUK entities: `OrukService`, `OrukOrganization`, `OrukLocation`, etc.) use **`class`** types with mutable `{ get; set; }` properties.  This is required for Entity Framework Core compatibility: EF needs mutable properties for change tracking and supports lazy loading via `virtual` navigation properties.
-- **Immutable value objects and response wrappers** (e.g. `OrukPage<T>`, `OrukPcMetadata`, `OrukPcTargetAudience`) use **`record`** types with `{ get; init; }` properties.  These are never managed by EF.
+- **Immutable value objects and response wrappers** (e.g. `OrukPage<T>`, `OrukExtensionProperty`) use **`record`** types with `{ get; init; }` properties.  These are never managed by EF.
 - Property names use **PascalCase** in C#; JSON serialisation maps to **snake_case** using `[JsonPropertyName]` attributes.
 - Every model property that is optional in ORUK must be typed as nullable (`string?`, `int?`, etc.).
 - Navigation properties on entity classes must be `virtual` to support EF Core lazy loading.

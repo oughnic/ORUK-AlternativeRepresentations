@@ -178,26 +178,72 @@ public class OrukServiceDeserializationTests
     }
 
     [Fact]
-    public void Deserialize_SingleService_PopulatesPcMetadata()
+    public void Deserialize_SingleService_Extensions_CapturesPcMetadata()
     {
         var json = LoadFixture("bristol-service-1625ip.json");
         var service = JsonSerializer.Deserialize<OrukService>(json, Options);
         Assert.NotNull(service);
-        Assert.NotNull(service.PcMetadata);
-        Assert.Equal("oliviaplenty@thecareforum.org.uk", service.PcMetadata.AssuredBy);
-        Assert.Equal("2025-09-02", service.PcMetadata.DateAssured);
-        Assert.Equal("2020-06-05", service.PcMetadata.DateCreated);
+        var ext = service.Extensions.SingleOrDefault(e => e.Namespace == "pc" && e.Key == "metadata");
+        Assert.NotNull(ext);
+        Assert.Equal("pc_metadata", ext.RawKey);
     }
 
     [Fact]
-    public void Deserialize_SingleService_PopulatesPcTargetAudience()
+    public void Deserialize_SingleService_Extensions_PcMetadata_ContainsAssuredBy()
     {
         var json = LoadFixture("bristol-service-1625ip.json");
         var service = JsonSerializer.Deserialize<OrukService>(json, Options);
         Assert.NotNull(service);
-        Assert.Equal(2, service.PcTargetAudience.Count);
-        Assert.Contains(service.PcTargetAudience, a => a.AudienceType == "Homeless");
-        Assert.Contains(service.PcTargetAudience, a => a.AudienceType == "Care leavers");
+        var ext = service.Extensions.Single(e => e.Namespace == "pc" && e.Key == "metadata");
+        var assuredBy = ext.Value.GetProperty("assured_by").GetString();
+        Assert.Equal("oliviaplenty@thecareforum.org.uk", assuredBy);
+    }
+
+    [Fact]
+    public void Deserialize_SingleService_Extensions_PcMetadata_ContainsDateCreated()
+    {
+        var json = LoadFixture("bristol-service-1625ip.json");
+        var service = JsonSerializer.Deserialize<OrukService>(json, Options);
+        Assert.NotNull(service);
+        var ext = service.Extensions.Single(e => e.Namespace == "pc" && e.Key == "metadata");
+        var dateCreated = ext.Value.GetProperty("date_created").GetString();
+        Assert.Equal("2020-06-05", dateCreated);
+    }
+
+    [Fact]
+    public void Deserialize_SingleService_Extensions_CapturesPcTargetAudience()
+    {
+        var json = LoadFixture("bristol-service-1625ip.json");
+        var service = JsonSerializer.Deserialize<OrukService>(json, Options);
+        Assert.NotNull(service);
+        var ext = service.Extensions.SingleOrDefault(e => e.Namespace == "pc" && e.Key == "targetAudience");
+        Assert.NotNull(ext);
+        Assert.Equal("pc_targetAudience", ext.RawKey);
+    }
+
+    [Fact]
+    public void Deserialize_SingleService_Extensions_PcTargetAudience_IsArray()
+    {
+        var json = LoadFixture("bristol-service-1625ip.json");
+        var service = JsonSerializer.Deserialize<OrukService>(json, Options);
+        Assert.NotNull(service);
+        var ext = service.Extensions.Single(e => e.Namespace == "pc" && e.Key == "targetAudience");
+        Assert.Equal(JsonValueKind.Array, ext.Value.ValueKind);
+        Assert.Equal(2, ext.Value.GetArrayLength());
+    }
+
+    [Fact]
+    public void Deserialize_SingleService_Extensions_PcTargetAudience_ContainsHomeless()
+    {
+        var json = LoadFixture("bristol-service-1625ip.json");
+        var service = JsonSerializer.Deserialize<OrukService>(json, Options);
+        Assert.NotNull(service);
+        var ext = service.Extensions.Single(e => e.Namespace == "pc" && e.Key == "targetAudience");
+        var audienceTypes = ext.Value.EnumerateArray()
+            .Select(el => el.GetProperty("audienceType").GetString())
+            .ToList();
+        Assert.Contains("Homeless", audienceTypes);
+        Assert.Contains("Care leavers", audienceTypes);
     }
 
     [Fact]

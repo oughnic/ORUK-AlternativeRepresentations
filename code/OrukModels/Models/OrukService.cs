@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace OrukModels.Models;
@@ -130,13 +131,28 @@ public class OrukService
     [JsonPropertyName("metadata")]
     public virtual ICollection<OrukMetadata> Metadata { get; set; } = [];
 
-    // ── Bristol / Open Place Directory extensions ─────────────────────────────────
-    // These non-standard fields appear in the Bristol OPD feed.  They are preserved
-    // here to avoid data loss during ingestion; they are omitted when supplying output.
+    // ── Vendor extension data ─────────────────────────────────────────────────────
+    // Any JSON fields not mapped to known ORUK / HSDS properties are captured here.
+    // Use the Extensions property to enumerate them as structured OrukExtensionProperty
+    // instances with namespace, key, and raw JSON value.
 
-    [JsonPropertyName("pc_metadata")]
-    public virtual OrukPcMetadata? PcMetadata { get; set; }
+    /// <summary>
+    /// Raw dictionary of any unrecognised JSON fields from the feed.
+    /// Populated automatically by System.Text.Json for all properties not explicitly
+    /// declared on this class.  Use <see cref="Extensions"/> for structured access.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 
-    [JsonPropertyName("pc_targetAudience")]
-    public virtual ICollection<OrukPcTargetAudience> PcTargetAudience { get; set; } = [];
+    /// <summary>
+    /// Structured view of all vendor-extended fields captured in <see cref="ExtensionData"/>.
+    /// Each entry exposes the <c>Namespace</c>, <c>Key</c>, <c>RawKey</c>, and raw
+    /// <see cref="JsonElement"/> <c>Value</c>.
+    /// Returns an empty list when no extension data is present.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<OrukExtensionProperty> Extensions =>
+        ExtensionData is null
+            ? []
+            : [.. ExtensionData.Select(kvp => OrukExtensionProperty.FromRawKey(kvp.Key, kvp.Value))];
 }
