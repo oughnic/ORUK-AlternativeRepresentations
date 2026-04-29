@@ -16,6 +16,9 @@ The initial focus is on reading a JSON configuration file that lists one or more
 
 | Path | Description |
 |------|-------------|
+| `code/` | All source code (see [`code/README.md`](code/README.md)) |
+| `code/OrukModels/` | Core ORUK v3 C# model class library |
+| `code/OrukModels.Tests/` | xUnit tests; includes Bristol OPD fixture data |
 | `plan/` | Planning documents: approach, mapping, and standards research |
 | `plan/standards/` | Descriptions of each related standard |
 | `plan/approach.md` | Technical approach to building the transformation service |
@@ -28,7 +31,17 @@ The initial focus is on reading a JSON configuration file that lists one or more
 
 ## Getting Started
 
-Documentation and planning materials are in the [`plan/`](plan/README.md) directory.  No code has been written yet; see [`plan/approach.md`](plan/approach.md) for the intended architecture.
+The code is in the [`code/`](code/README.md) directory.
+
+```bash
+# Build
+dotnet build code/OrukAlternativeRepresentations.slnx
+
+# Test
+dotnet test code/OrukAlternativeRepresentations.slnx
+```
+
+Further documentation and planning materials are in the [`plan/`](plan/README.md) directory.
 
 ## Licence
 
