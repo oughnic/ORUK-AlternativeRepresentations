@@ -7,7 +7,7 @@ using OrukTransformer.Core.Mapping;
 
 // ── Options ──────────────────────────────────────────────────────────────────
 
-var orukUrlOption = new Option<Uri>("--oruk-url")
+var orukUrlOption = new Option<string>("--oruk-url")
 {
     Description = "URL of the ORUK v3 GET /services endpoint.",
     Required = true
@@ -48,7 +48,13 @@ var rootCommand = new RootCommand(
 
 rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
 {
-    var orukUrl = parseResult.GetValue(orukUrlOption)!;
+    var orukUrlRaw = parseResult.GetValue(orukUrlOption)!;
+    if (!Uri.TryCreate(orukUrlRaw, UriKind.Absolute, out var orukUrl))
+    {
+        Console.Error.WriteLine($"Error: '--oruk-url' value '{orukUrlRaw}' is not a valid absolute URI.");
+        Environment.Exit(1);
+        return;
+    }
     var jsonLd = parseResult.GetValue(jsonLdOption);
     var maxRecords = parseResult.GetValue(maxRecordsOption);
     var verbose = parseResult.GetValue(verboseOption);
