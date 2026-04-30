@@ -161,14 +161,14 @@ public class OrukToSchemaOrgTransformerTests
     }
 
     [Fact]
-    public void Transform_ValidEmail_RecordsOther_NotMapped()
+    public void Transform_ValidEmail_RecordsUnmapped_NotMapped()
     {
         var service = MinimalService();
         service.Email = "info@example.org";
         var result = _sut.Transform(service, _opts);
         var rec = FindRecord(result.Report, "service.email");
 
-        Assert.Equal(VodimClassification.Other, rec?.Classification);
+        Assert.Equal(VodimClassification.Unmapped, rec?.Classification);
     }
 
     [Fact]
@@ -248,16 +248,16 @@ public class OrukToSchemaOrgTransformerTests
     }
 
     [Fact]
-    public void Transform_InvalidEmail_RecordsOther_NotMapped()
+    public void Transform_InvalidEmail_RecordsUnmapped_NotMapped()
     {
-        // Even a malformed email is simply reported as Other (unmapped), not Invalid,
+        // Even a malformed email is simply reported as Unmapped, not Invalid,
         // because the field is intentionally not mapped to any schema.org property.
         var service = MinimalService();
         service.Email = "not-an-email";
         var result = _sut.Transform(service, _opts);
         var rec = FindRecord(result.Report, "service.email");
 
-        Assert.Equal(VodimClassification.Other, rec?.Classification);
+        Assert.Equal(VodimClassification.Unmapped, rec?.Classification);
     }
 
     [Fact]
@@ -712,6 +712,103 @@ public class OrukToSchemaOrgTransformerTests
         var result = _sut.Transform(MinimalService(), _opts);
 
         Assert.True(result.Report.ValidCount > 0);
+    }
+
+    [Fact]
+    public void Transform_Report_UnmappedCountGreaterThanZeroForMinimalService()
+    {
+        // Every service has at least the email/fees/licenses/alert/last_modified fields
+        // recorded as Missing (absent) under the Unmapped category — so UnmappedCount
+        // is driven by presence of values.  A service with some unmapped values present
+        // must have UnmappedCount > 0.
+        var service = MinimalService();
+        service.Email = "info@example.org";
+        var result = _sut.Transform(service, _opts);
+
+        Assert.True(result.Report.UnmappedCount > 0);
+    }
+
+    // ── HTML stripping ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Transform_DescriptionWithHtmlTags_StripsTagsFromOutput()
+    {
+        var service = MinimalService();
+        service.Description = "<p>Some <strong>useful</strong> description.</p>";
+        var result = _sut.Transform(service, _opts);
+
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+        Assert.Equal("Some useful description.", node.Description);
+    }
+
+    [Fact]
+    public void Transform_DescriptionWithHtmlTags_RecordsHtmlNoteInVodim()
+    {
+        var service = MinimalService();
+        service.Description = "<p>Text with <em>markup</em>.</p>";
+        var result = _sut.Transform(service, _opts);
+
+        var rec = FindRecord(result.Report, "service.description");
+        Assert.NotNull(rec?.Note);
+        Assert.Contains("HTML markup stripped", rec!.Note);
+    }
+
+    [Fact]
+    public void Transform_DescriptionWithNoHtmlTags_IsUnchangedInOutput()
+    {
+        var service = MinimalService();
+        service.Description = "Plain text with no markup.";
+        var result = _sut.Transform(service, _opts);
+
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+        Assert.Equal("Plain text with no markup.", node.Description);
+        var rec = FindRecord(result.Report, "service.description");
+        Assert.Null(rec?.Note);
+    }
+
+    [Fact]
+    public void Transform_HtmlEntitiesWithoutLiteralTags_PassedThroughUnchanged()
+    {
+        // When the source string contains HTML entities (&amp; etc.) but NO literal
+        // angle-bracket tags, StripHtml returns the value unmodified.  HtmlDecode is
+        // only applied after tag removal, so this is expected and by design.
+        var service = MinimalService();
+        service.Description = "Caf&eacute; &amp; services for children &lt;16&gt;.";
+        var result = _sut.Transform(service, _opts);
+
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+        // Value is passed through unchanged — entities are not decoded without tags
+        Assert.Equal("Caf&eacute; &amp; services for children &lt;16&gt;.", node.Description);
+        var rec = FindRecord(result.Report, "service.description");
+        Assert.Null(rec?.Note); // No HTML note because no literal tags were present
+    }
+
+    [Fact]
+    public void Transform_ApplicationProcessWithHtml_StripsTagsFromTermsOfService()
+    {
+        var service = MinimalService();
+        service.ApplicationProcess = "<ol><li>Step 1</li><li>Step 2</li></ol>";
+        var result = _sut.Transform(service, _opts);
+
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+        Assert.NotNull(node.TermsOfService);
+        Assert.DoesNotContain("<", node.TermsOfService!);
+    }
+
+    [Fact]
+    public void Transform_OrganizationDescriptionWithHtml_StripsTagsFromOutput()
+    {
+        var service = MinimalService();
+        service.Organization = new OrukOrganization
+        {
+            Id = "org-1",
+            Name = "Test Org",
+            Description = "<p>We <em>help</em> people.</p>",
+        };
+        var result = _sut.Transform(service, _opts);
+
+        var org = result.Document.Graph.OfType<SchemaOrgOrganization>().Single();
+        Assert.Equal("We help people.", org.Description);
     }
 
     // ── Bristol OPD end-to-end fixture ────────────────────────────────────────────

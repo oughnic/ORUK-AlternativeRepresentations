@@ -49,6 +49,9 @@ public sealed class TransformationReport
     /// <summary>Number of fields classified as <see cref="VodimClassification.Missing"/>.</summary>
     public int MissingCount => CountOf(VodimClassification.Missing);
 
+    /// <summary>Number of fields classified as <see cref="VodimClassification.Unmapped"/>.</summary>
+    public int UnmappedCount => CountOf(VodimClassification.Unmapped);
+
     /// <summary>Total number of field mapping records in this report.</summary>
     public int TotalCount => _records.Count;
 
@@ -78,6 +81,7 @@ public sealed class TransformationReport
         sb.AppendLine($"  D Default             : {DefaultCount}");
         sb.AppendLine($"  I Invalid             : {InvalidCount}");
         sb.AppendLine($"  M Missing             : {MissingCount}");
+        sb.AppendLine($"  U Unmapped            : {UnmappedCount}");
         if (OtherCount > 0 || InvalidCount > 0)
         {
             sb.AppendLine("  Issues:");

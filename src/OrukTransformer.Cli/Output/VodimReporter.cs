@@ -29,7 +29,7 @@ public sealed class VodimReporter : IVodimReporter
     internal static string BuildSummaryText(
         IReadOnlyList<TransformationReport> reports, Uri sourceUrl)
     {
-        int totalV = 0, totalO = 0, totalD = 0, totalI = 0, totalM = 0;
+        int totalV = 0, totalO = 0, totalD = 0, totalI = 0, totalM = 0, totalU = 0;
 
         foreach (var r in reports)
         {
@@ -38,9 +38,10 @@ public sealed class VodimReporter : IVodimReporter
             totalD += r.DefaultCount;
             totalI += r.InvalidCount;
             totalM += r.MissingCount;
+            totalU += r.UnmappedCount;
         }
 
-        int total = totalV + totalO + totalD + totalI + totalM;
+        int total = totalV + totalO + totalD + totalI + totalM + totalU;
 
         static string Pct(int count, int tot) =>
             tot == 0 ? " 0%" : $"{count * 100 / tot,2}%";
@@ -52,6 +53,7 @@ public sealed class VodimReporter : IVodimReporter
         sb.AppendLine($"  D Default   : {totalD,6}  ({Pct(totalD, total)})");
         sb.AppendLine($"  I Invalid   : {totalI,6}  ({Pct(totalI, total)})");
         sb.AppendLine($"  M Missing   : {totalM,6}  ({Pct(totalM, total)})");
+        sb.AppendLine($"  U Unmapped  : {totalU,6}  ({Pct(totalU, total)})");
         sb.Append($"  Total fields: {total,6}");
         return sb.ToString();
     }
@@ -71,7 +73,8 @@ public sealed class VodimReporter : IVodimReporter
     {
         foreach (var report in reports)
         {
-            bool hasIssues = report.OtherCount > 0 || report.InvalidCount > 0;
+            bool hasIssues = report.OtherCount > 0 || report.InvalidCount > 0
+                || report.UnmappedCount > 0;
 
             // Identify the service name from the first record's source path, or
             // fall back to the service ID for the heading
@@ -86,10 +89,11 @@ public sealed class VodimReporter : IVodimReporter
 
             writer.WriteLine(report.Summary());
 
-            // Emit each record that has issues
+            // Emit each record that has issues or is intentionally unmapped
             foreach (var rec in report.Records.Where(
                 r => r.Classification is VodimClassification.Other
-                    or VodimClassification.Invalid))
+                    or VodimClassification.Invalid
+                    or VodimClassification.Unmapped))
             {
                 writer.WriteLine($"  {rec}");
             }
