@@ -1,0 +1,64 @@
+{
+    "id": "2a3483ea-8966-4f50-9dc3-7bafa1e5c623",
+    "name": "1625 Independent People",
+    "description": "<h1>About Us</h1>\n\n<p>1625 Independent People works with young people who are homeless, leaving care or at risk of homelessness in Bristol and the South West.</p>\n\n<p>Our services ranges from signposting or advice, to intensive one-to one support, supported housing, group activities and peer support.</p>\n\n<p>As well as providing safe, stable accommodation, we provide practical and emotional support to ensure vulnerable young people can build healthy relationships, develop independent living skills and can access jobs and training.</p>\n\n<p>We nurture the existing skills, strengths and talent in young people, to show them they can believe in themselves, and that they have the skills to thrive as an independent adult.</p>\n\n<p>Our staff are trained to provide emotional support, as young people often have histories that involve trauma and disrupted family life. We know that positive relationships based on trust, mutual respect and dignity is the key tool for change for young people.</p>\n\n<h1>Get Help</h1>\n\n<p>If you are a young person who is homeless, or at risk of becoming homeless, we can help you.</p>\n\n<p>If you are in Bristol, please click the relevant box below, and we will get back to you as soon as we can.</p>\n\n<p>If you need help and are based in South Glos, please call 0117 969 5763 on Monday \u2013 Friday 9 \u2013 4.30pm.</p>\n\n<p>Or you can \u2018drop in\u2019 at the Patchway office on a Tuesday and Thursday from 2pm \u2013 4.30pm at 23 The Parade, Coniston Road, Patchway, Bristol, BS34 5LP.</p>",
+    "url": "http://1625ip.co.uk",
+    "email": "enquiries@1625ip.co.uk",
+    "status": "active",
+    "assured_date": "2025-09-02",
+    "service_areas": [
+        {
+            "id": "60ee5b89-5656-4f13-ba6b-a91078590699",
+            "name": "Bristol",
+            "serviceId": "2a3483ea-8966-4f50-9dc3-7bafa1e5c623",
+            "uri": "http://www.example.com"
+        },
+        {
+            "id": "a97f3194-4594-49a6-ab82-8a820a573b69",
+            "name": "South Gloucestershire",
+            "serviceId": "2a3483ea-8966-4f50-9dc3-7bafa1e5c623",
+            "uri": "http://www.example.com"
+        }
+    ],
+    "organization": {
+        "description": "1625 Independent People works with young people who are homeless, leaving care or at risk of homelessness in Bristol and the South West.\n\nOur services ranges from signposting or advice, to intensive one-to one support, supported housing, group activities and peer support.",
+        "id": "42d3fa20-b36d-4822-b5dc-68029911caaf",
+        "name": "1625 Independent People",
+        "uri": "http://1625ip.co.uk",
+        "website": "http://1625ip.co.uk"
+    },
+    "contacts": [
+        {
+            "id": "b5fcb85a-d3d3-4c14-8983-cbed398d5eb4",
+            "phones": [
+                {
+                    "number": "0800 0354213"
+                },
+                {
+                    "number": "Bristol Youth MAPS: 0117 332 7111"
+                }
+            ]
+        }
+    ],
+    "pc_metadata": {
+        "assured_by": "oliviaplenty@thecareforum.org.uk",
+        "date_assured": "2025-09-02",
+        "date_created": "2020-06-05",
+        "date_modified": "2025-09-02"
+    },
+    "pc_targetAudience": [
+        {
+            "audienceType": "Homeless",
+            "id": "Homeless"
+        },
+        {
+            "audienceType": "Care leavers",
+            "id": "80425"
+        }
+    ],
+    "assurer_email": "oliviaplenty@thecareforum.org.uk",
+    "last_modified": "2025-09-02T12:06:15.654",
+    "maximum_age": -1,
+    "minimum_age": -1,
+    "organization_id": "42d3fa20-b36d-4822-b5dc-68029911caaf"
+}
