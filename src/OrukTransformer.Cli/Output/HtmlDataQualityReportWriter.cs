@@ -124,8 +124,8 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
                     .Select(g => g.Key)
                     .FirstOrDefault() ?? "—";
 
-                // Anchor id based on field path
-                var anchorId = "field-" + Encode(group.Key.Replace('.', '-').Replace('[', '-').Replace(']', '-'));
+                // Anchor id based on field path — use only safe characters, no HTML encoding
+                var anchorId = "field-" + SanitizeId(group.Key);
 
                 sb.AppendLine($"      <section class=\"field\" id=\"{anchorId}\">");
                 sb.AppendLine($"        <h2 class=\"field-heading\">{Encode(group.Key)}</h2>");
@@ -199,7 +199,7 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
         StringBuilder sb, string code, string label,
         int count, int total, string cssClass, int indent = 10)
     {
-        var pct = total == 0 ? "0%" : $"{count * 100 / total}%";
+        var pct = total == 0 ? "0%" : $"{(int)Math.Round(count * 100.0 / total)}%";
         var pad = new string(' ', indent);
         sb.AppendLine(
             $"{pad}<tr class=\"vodim-{cssClass}\">" +
@@ -221,6 +221,26 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
     };
 
     private static string Encode(string s) => WebUtility.HtmlEncode(s);
+
+    /// <summary>
+    /// Produces a safe HTML id attribute value from an ORUK field path.
+    /// Replaces non-alphanumeric characters with hyphens and collapses consecutive
+    /// hyphens to keep IDs readable.
+    /// </summary>
+    private static string SanitizeId(string key)
+    {
+        var chars = key.ToCharArray();
+        for (int i = 0; i < chars.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(chars[i]))
+                chars[i] = '-';
+        }
+        // Collapse consecutive hyphens
+        var result = new string(chars);
+        while (result.Contains("--", StringComparison.Ordinal))
+            result = result.Replace("--", "-", StringComparison.Ordinal);
+        return result.Trim('-');
+    }
 
     // ── Embedded CSS (iStandUK branding) ─────────────────────────────────────────
 

@@ -188,8 +188,9 @@ public class HtmlDataQualityReportWriterTests
 
         Assert.Contains("service.name", html);
         Assert.Contains("service.url", html);
-        // Two field headings
-        Assert.Equal(2, CountOccurrences(html, "field-service-"));
+        // Two field headings — check precise anchor IDs
+        Assert.Contains("id=\"field-service-name\"", html);
+        Assert.Contains("id=\"field-service-url\"", html);
     }
 
     [Fact]
@@ -219,16 +220,4 @@ public class HtmlDataQualityReportWriterTests
         Assert.DoesNotContain("Issue Notes", html);
     }
 
-    // ── Utility ───────────────────────────────────────────────────────────────────
-
-    private static int CountOccurrences(string text, string pattern)
-    {
-        int count = 0, index = 0;
-        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += pattern.Length;
-        }
-        return count;
-    }
 }
