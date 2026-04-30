@@ -5,6 +5,10 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/OrukTransformer.Core/OrukTransformer.Core.csproj" />
+    <Project Path="src/OrukTransformer.Cli.Tests/OrukTransformer.Cli.Tests.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
+    <Project Path="src/OrukTransformer.Cli/OrukTransformer.Cli.csproj" />
     <Project Path="src/OrukTransformer.Core.Tests/OrukTransformer.Core.Tests.csproj" />
   </Folder>
 </Solution>
