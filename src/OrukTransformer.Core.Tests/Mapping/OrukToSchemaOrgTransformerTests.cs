@@ -161,14 +161,14 @@ public class OrukToSchemaOrgTransformerTests
     }
 
     [Fact]
-    public void Transform_ValidEmail_RecordsValid()
+    public void Transform_ValidEmail_RecordsOther_NotMapped()
     {
         var service = MinimalService();
         service.Email = "info@example.org";
         var result = _sut.Transform(service, _opts);
         var rec = FindRecord(result.Report, "service.email");
 
-        Assert.Equal(VodimClassification.Valid, rec?.Classification);
+        Assert.Equal(VodimClassification.Other, rec?.Classification);
     }
 
     [Fact]
@@ -248,18 +248,20 @@ public class OrukToSchemaOrgTransformerTests
     }
 
     [Fact]
-    public void Transform_InvalidEmail_RecordsInvalid()
+    public void Transform_InvalidEmail_RecordsOther_NotMapped()
     {
+        // Even a malformed email is simply reported as Other (unmapped), not Invalid,
+        // because the field is intentionally not mapped to any schema.org property.
         var service = MinimalService();
         service.Email = "not-an-email";
         var result = _sut.Transform(service, _opts);
         var rec = FindRecord(result.Report, "service.email");
 
-        Assert.Equal(VodimClassification.Invalid, rec?.Classification);
+        Assert.Equal(VodimClassification.Other, rec?.Classification);
     }
 
     [Fact]
-    public void Transform_ValidEmail_MappedToContactPoint_NotDirectProperty()
+    public void Transform_ValidEmail_NotPresentInOutput()
     {
         var service = MinimalService();
         service.Email = "info@example.org";
@@ -267,15 +269,17 @@ public class OrukToSchemaOrgTransformerTests
 
         var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
 
-        // Email must not appear as a direct property of GovernmentService
+        // Email must not appear anywhere on the output node
         var nodeJson = System.Text.Json.JsonSerializer.Serialize(node, SchemaOrgSerializerOptions.Default);
         var doc = System.Text.Json.JsonDocument.Parse(nodeJson);
         Assert.False(doc.RootElement.TryGetProperty("email", out _),
-            "email must not be a direct property of GovernmentService");
+            "email must not appear as a direct property of GovernmentService");
 
-        // Email must be present in a contactPoint
-        Assert.NotNull(node.ContactPoint);
-        Assert.Contains(node.ContactPoint, cp => cp.Email == "info@example.org");
+        // Email must not appear inside any contactPoint either
+        var hasEmailInContactPoints = node.ContactPoint?
+            .Any(cp => !string.IsNullOrWhiteSpace(cp.Email)) ?? false;
+        Assert.False(hasEmailInContactPoints,
+            "service email must not be injected into any contactPoint");
     }
 
     [Fact]

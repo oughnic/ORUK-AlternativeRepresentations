@@ -24,6 +24,16 @@ The initial focus is on reading a JSON configuration file that lists one or more
 | `plan/approach.md` | Technical approach to building the transformation service |
 | `plan/mapping.md` | Field-level mapping from ORUK to Schema.org |
 
+## Unmapped ORUK Fields
+
+The Schema.org transformation is **lossy** for the following ORUK fields.  No suitable Schema.org property exists, so the value is intentionally omitted from the output.  The VODIM report records each occurrence as `Other` to flag the data loss.
+
+| ORUK entity | Field | Reason |
+|-------------|-------|--------|
+| `Service` | `email` | `schema:GovernmentService` does not have a standard email property and its `contactPoint` collection is not a permitted property either; there is no schema.org mapping that faithfully represents a service-level contact email. |
+
+If you need these fields in downstream systems, consume the raw ORUK feed directly or extend the transformer with a custom `additionalProperty` fallback.
+
 ## Related Projects
 
 - [iStandUK ORUK Validator](https://github.com/iStandUK/prod-oruk-validator) – JSON Schema validator for ORUK APIs (the canonical schema source used by this project).
