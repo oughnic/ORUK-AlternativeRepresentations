@@ -135,9 +135,9 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         Record(report, "service.url", "GovernmentService.url",
             urlClass, service.Url, urlClass == VodimClassification.Valid ? service.Url : null, urlNote);
 
-        // email
+        // email → contactPoint.email (not a direct GovernmentService property)
         var (emailClass, emailNote) = ClassifyEmail(service.Email);
-        Record(report, "service.email", "GovernmentService.email",
+        Record(report, "service.email", "GovernmentService.contactPoint.email",
             emailClass, service.Email,
             emailClass == VodimClassification.Valid ? service.Email : null, emailNote);
 
@@ -255,9 +255,10 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
 
         var openingHours = MapSchedules(allSchedules, "service.schedules", report);
 
-        // contacts → contactPoint
+        // contacts → contactPoint (includes direct service-level email)
         var contactPoints = new List<SchemaOrgContactPoint>();
-        contactPoints.AddRange(MapServiceContacts(service.Contacts, service.Phones, report));
+        contactPoints.AddRange(MapServiceContacts(service.Contacts, service.Phones,
+            emailClass == VodimClassification.Valid ? service.Email : null, report));
 
         // languages → availableLanguage
         var languages = MapLanguages(service.Languages, "service.languages", report);
@@ -293,7 +294,6 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             AlternateName = service.AlternateName,
             Description = service.Description,
             Url = urlClass == VodimClassification.Valid ? service.Url : null,
-            Email = emailClass == VodimClassification.Valid ? service.Email : null,
             Provider = providerRef is not null
                 ? new Dictionary<string, string> { ["@id"] = providerRef }
                 : null,
@@ -738,9 +738,11 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
     private List<SchemaOrgContactPoint> MapServiceContacts(
         ICollection<OrukContact> contacts,
         ICollection<OrukPhone> directPhones,
+        string? serviceEmail,
         TransformationReport report)
     {
         var result = new List<SchemaOrgContactPoint>();
+        var emailConsumed = false;
 
         // Direct service-level phones (no contact entity)
         foreach (var phone in directPhones.Where(p => !string.IsNullOrWhiteSpace(p.Number)))
@@ -751,11 +753,24 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             {
                 ContactType = "enquiries",
                 Telephone = phone.Number,
+                // Attach the email to the first phone ContactPoint only
+                Email = emailConsumed ? null : serviceEmail,
             });
+            emailConsumed = true;
         }
         if (!directPhones.Any())
             Record(report, "service.phones", "GovernmentService.contactPoint.telephone",
                 VodimClassification.Missing);
+
+        // If no phone ContactPoints were created, emit a dedicated ContactPoint for the email
+        if (!emailConsumed && !string.IsNullOrWhiteSpace(serviceEmail))
+        {
+            result.Add(new SchemaOrgContactPoint
+            {
+                ContactType = "enquiries",
+                Email = serviceEmail,
+            });
+        }
 
         // Contacts (each maps to a ContactPoint)
         foreach (var contact in contacts)

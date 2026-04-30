@@ -259,6 +259,26 @@ public class OrukToSchemaOrgTransformerTests
     }
 
     [Fact]
+    public void Transform_ValidEmail_MappedToContactPoint_NotDirectProperty()
+    {
+        var service = MinimalService();
+        service.Email = "info@example.org";
+        var result = _sut.Transform(service, _opts);
+
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+
+        // Email must not appear as a direct property of GovernmentService
+        var nodeJson = System.Text.Json.JsonSerializer.Serialize(node, SchemaOrgSerializerOptions.Default);
+        var doc = System.Text.Json.JsonDocument.Parse(nodeJson);
+        Assert.False(doc.RootElement.TryGetProperty("email", out _),
+            "email must not be a direct property of GovernmentService");
+
+        // Email must be present in a contactPoint
+        Assert.NotNull(node.ContactPoint);
+        Assert.Contains(node.ContactPoint, cp => cp.Email == "info@example.org");
+    }
+
+    [Fact]
     public void Transform_InvalidDate_RecordsInvalid()
     {
         var service = MinimalService();
