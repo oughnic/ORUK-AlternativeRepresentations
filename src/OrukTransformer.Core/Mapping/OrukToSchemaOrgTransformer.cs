@@ -1,0 +1,1493 @@
+using OrukModels.Models;
+using OrukModels.SchemaOrg;
+using OrukTransformer.Core.Vodim;
+
+namespace OrukTransformer.Core.Mapping;
+
+/// <summary>
+/// Transforms a single <see cref="OrukService"/> (with its navigation graph) into a
+/// Schema.org JSON-LD <c>@graph</c> document, recording a field-by-field VODIM
+/// data-quality classification for every ORUK field that could potentially be mapped.
+///
+/// <para>
+/// The transformer never throws for data-quality reasons; all issues are captured in
+/// the returned <see cref="TransformationReport"/>.
+/// </para>
+/// </summary>
+/// <remarks>
+/// Mapping rules follow <c>plan/mapping.md</c> in the repository.
+/// </remarks>
+public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
+{
+    // ── Constants ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Upper bound for a plausible human age in years.
+    /// Values above this are classified as Invalid.
+    /// </summary>
+    private const double MaxPlausibleHumanAge = 130;
+
+    // ── ORUK vocabulary constants ────────────────────────────────────────────────
+
+    private static readonly HashSet<string> ValidOrukStatuses =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "active", "inactive", "defunct", "temporarily closed"
+        };
+
+    /// <summary>
+    /// RRULE short-form day codes → Schema.org DayOfWeek URI.
+    /// Long-form English day names are also accepted (classified as "Other").
+    /// </summary>
+    private static readonly Dictionary<string, string> RruleDayToSchemaOrg =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MO"] = SchemaDayOfWeek.Monday,
+            ["TU"] = SchemaDayOfWeek.Tuesday,
+            ["WE"] = SchemaDayOfWeek.Wednesday,
+            ["TH"] = SchemaDayOfWeek.Thursday,
+            ["FR"] = SchemaDayOfWeek.Friday,
+            ["SA"] = SchemaDayOfWeek.Saturday,
+            ["SU"] = SchemaDayOfWeek.Sunday,
+        };
+
+    private static readonly Dictionary<string, string> LongDayToSchemaOrg =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Monday"] = SchemaDayOfWeek.Monday,
+            ["Tuesday"] = SchemaDayOfWeek.Tuesday,
+            ["Wednesday"] = SchemaDayOfWeek.Wednesday,
+            ["Thursday"] = SchemaDayOfWeek.Thursday,
+            ["Friday"] = SchemaDayOfWeek.Friday,
+            ["Saturday"] = SchemaDayOfWeek.Saturday,
+            ["Sunday"] = SchemaDayOfWeek.Sunday,
+            ["PublicHolidays"] = SchemaDayOfWeek.PublicHolidays,
+        };
+
+    private static readonly HashSet<string> KnownTaxonomyPrefixes =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "esdstandards", "esd standards", "snomed", "snomed ct", "loinc", "icd-10"
+        };
+
+    // ── IOrukToSchemaOrgTransformer ──────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public TransformationResult Transform(OrukService service, TransformationOptions options)
+    {
+        var report = new TransformationReport(service.Id);
+        var nodes = new List<SchemaOrgThing>();
+
+        // 1. Service → GovernmentService
+        var schemaService = MapService(service, options, report);
+        nodes.Add(schemaService);
+
+        // 2. Organization → Organization (if present)
+        if (service.Organization is not null)
+        {
+            var org = MapOrganization(service.Organization, options, report);
+            nodes.Add(org);
+        }
+        else
+        {
+            Record(report, "service.organization", "GovernmentService.provider",
+                VodimClassification.Missing, note: "No organization navigation object present.");
+        }
+
+        // 3. Locations via ServiceAtLocations
+        foreach (var sal in service.ServiceAtLocations)
+        {
+            if (sal.Location is not null)
+            {
+                var place = MapLocation(sal.Location, options, report);
+                nodes.Add(place);
+            }
+        }
+
+        var document = new SchemaOrgDocument { Graph = nodes };
+        return new TransformationResult { Document = document, Report = report };
+    }
+
+    // ── Service mapping ──────────────────────────────────────────────────────────
+
+    private SchemaOrgGovernmentService MapService(
+        OrukService service, TransformationOptions options, TransformationReport report)
+    {
+        // @id
+        var serviceId = MapRequiredString(report,
+            "service.id", "GovernmentService.@id", service.Id);
+        var serviceUri = serviceId is not null ? options.ServiceUri(serviceId) : null;
+
+        // name (required by Schema.org)
+        var name = MapRequiredString(report,
+            "service.name", "GovernmentService.name", service.Name);
+
+        // alternate_name
+        Record(report, "service.alternate_name", "GovernmentService.alternateName",
+            Classify(service.AlternateName), service.AlternateName, service.AlternateName);
+
+        // description
+        Record(report, "service.description", "GovernmentService.description",
+            Classify(service.Description), Truncate(service.Description), Truncate(service.Description));
+
+        // url
+        var (urlClass, urlNote) = ClassifyUrl(service.Url);
+        Record(report, "service.url", "GovernmentService.url",
+            urlClass, service.Url, urlClass == VodimClassification.Valid ? service.Url : null, urlNote);
+
+        // email
+        var (emailClass, emailNote) = ClassifyEmail(service.Email);
+        Record(report, "service.email", "GovernmentService.email",
+            emailClass, service.Email,
+            emailClass == VodimClassification.Valid ? service.Email : null, emailNote);
+
+        // status → additionalProperty[orukStatus]
+        var (statusClass, statusNote) = ClassifyOrukStatus(service.Status);
+        Record(report, "service.status", "GovernmentService.additionalProperty[orukStatus]",
+            statusClass, service.Status,
+            statusClass is VodimClassification.Valid or VodimClassification.Other
+                ? service.Status : null,
+            statusNote);
+
+        // interpretation_services → availableLanguage (free-text fallback if no language entities)
+        Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
+            Classify(service.InterpretationServices),
+            service.InterpretationServices, service.InterpretationServices,
+            service.InterpretationServices is not null
+                ? "Mapped as free-text Language name. Prefer service.languages collection."
+                : null);
+
+        // application_process → termsOfService
+        Record(report, "service.application_process", "GovernmentService.termsOfService",
+            Classify(service.ApplicationProcess),
+            Truncate(service.ApplicationProcess), Truncate(service.ApplicationProcess));
+
+        // fees_description → used as fallback in Offer.description
+        Record(report, "service.fees_description", "GovernmentService.offers[].description",
+            Classify(service.FeesDescription),
+            service.FeesDescription, service.FeesDescription,
+            service.FeesDescription is not null
+                ? "Used as fallback offer description when no cost_options are present." : null);
+
+        // fees (deprecated)
+        Record(report, "service.fees", "—",
+            string.IsNullOrEmpty(service.Fees) ? VodimClassification.Missing : VodimClassification.Other,
+            service.Fees, null,
+            "Deprecated HSDS field — superseded by cost_options. No Schema.org mapping.");
+
+        // wait_time (deprecated) → additionalProperty[waitTime]
+        Record(report, "service.wait_time", "GovernmentService.additionalProperty[waitTime]",
+            string.IsNullOrEmpty(service.WaitTime)
+                ? VodimClassification.Missing
+                : VodimClassification.Other,
+            service.WaitTime, service.WaitTime,
+            service.WaitTime is not null ? "Deprecated HSDS field. Preserved in additionalProperty." : null);
+
+        // accreditations → hasCredential
+        Record(report, "service.accreditations", "GovernmentService.hasCredential",
+            Classify(service.Accreditations), service.Accreditations, service.Accreditations);
+
+        // eligibility_description → audience.description
+        Record(report, "service.eligibility_description", "GovernmentService.audience.description",
+            Classify(service.EligibilityDescription),
+            Truncate(service.EligibilityDescription), Truncate(service.EligibilityDescription));
+
+        // minimum_age
+        var (minAgeClass, minAgeNote, minAgeVal) = ClassifyAge(service.MinimumAge, "minimum_age");
+        Record(report, "service.minimum_age", "GovernmentService.audience.suggestedMinAge",
+            minAgeClass, service.MinimumAge?.ToString(), minAgeVal?.ToString(), minAgeNote);
+
+        // maximum_age
+        var (maxAgeClass, maxAgeNote, maxAgeVal) = ClassifyAge(service.MaximumAge, "maximum_age");
+        Record(report, "service.maximum_age", "GovernmentService.audience.suggestedMaxAge",
+            maxAgeClass, service.MaximumAge?.ToString(), maxAgeVal?.ToString(), maxAgeNote);
+
+        // assured_date → additionalProperty[assuredDate]
+        var (dateClass, dateNote) = ClassifyDate(service.AssuredDate);
+        Record(report, "service.assured_date", "GovernmentService.additionalProperty[assuredDate]",
+            dateClass, service.AssuredDate,
+            dateClass == VodimClassification.Valid ? service.AssuredDate : null, dateNote);
+
+        // assurer_email → additionalProperty[assuredBy]
+        var (assurerClass, assurerNote) = ClassifyEmail(service.AssurerEmail);
+        Record(report, "service.assurer_email", "GovernmentService.additionalProperty[assuredBy]",
+            assurerClass, service.AssurerEmail,
+            assurerClass == VodimClassification.Valid ? service.AssurerEmail : null, assurerNote);
+
+        // licenses (deprecated)
+        Record(report, "service.licenses", "—",
+            string.IsNullOrEmpty(service.Licenses) ? VodimClassification.Missing : VodimClassification.Other,
+            service.Licenses, null,
+            "Deprecated HSDS field. No Schema.org mapping.");
+
+        // alert → no Schema.org equivalent
+        Record(report, "service.alert", "—",
+            string.IsNullOrEmpty(service.Alert) ? VodimClassification.Missing : VodimClassification.Other,
+            service.Alert, null, "No Schema.org mapping defined for alert.");
+
+        // last_modified → no Schema.org equivalent in GovernmentService
+        Record(report, "service.last_modified", "—",
+            string.IsNullOrEmpty(service.LastModified)
+                ? VodimClassification.Missing : VodimClassification.Other,
+            service.LastModified, null, "No Schema.org mapping defined for last_modified.");
+
+        // ── Build mapped navigation properties ──────────────────────────────────
+
+        // provider @id reference
+        string? providerRef = service.Organization is not null
+            ? options.OrganisationUri(service.Organization.Id)
+            : null;
+
+        // locations (via service_at_locations)
+        var locationRefs = service.ServiceAtLocations
+            .Where(sal => sal.Location is not null)
+            .Select(sal => (object)new { type = "@id", id = options.LocationUri(sal.Location!.Id) })
+            .ToList();
+        RecordCollectionMapping(report,
+            "service.service_at_locations", "GovernmentService.location",
+            service.ServiceAtLocations.Count, locationRefs.Count);
+
+        // schedules → openingHoursSpecification
+        var allSchedules = service.Schedules.ToList();
+        // Also pick up schedules from service_at_locations
+        foreach (var sal in service.ServiceAtLocations)
+            allSchedules.AddRange(sal.Schedules);
+
+        var openingHours = MapSchedules(allSchedules, "service.schedules", report);
+
+        // contacts → contactPoint
+        var contactPoints = new List<SchemaOrgContactPoint>();
+        contactPoints.AddRange(MapServiceContacts(service.Contacts, service.Phones, report));
+
+        // languages → availableLanguage
+        var languages = MapLanguages(service.Languages, "service.languages", report);
+
+        // cost_options → offers
+        var offers = MapCostOptions(service.CostOptions, service.FeesDescription, options, report);
+
+        // eligibility → audience (prefer structured over eligibility_description)
+        var audience = MapAudience(service.Eligibility, service.EligibilityDescription,
+            service.MinimumAge, service.MaximumAge, report);
+
+        // service_areas → areaServed
+        var areasServed = MapServiceAreas(service.ServiceAreas, options, report);
+
+        // attributes / taxonomy terms → additionalType + keywords
+        var (additionalTypes, keywords) = MapAttributes(service.Attributes, "service", report);
+
+        // accreditations → hasCredential (free-text)
+        var credentials = string.IsNullOrWhiteSpace(service.Accreditations)
+            ? null
+            : new List<SchemaOrgEducationalOccupationalCredential>
+            {
+                new() { Name = service.Accreditations }
+            };
+
+        // additionalProperty — unmappable-but-preserve fields
+        var additionalProps = BuildServiceAdditionalProperties(service);
+
+        return new SchemaOrgGovernmentService
+        {
+            Id = serviceUri,
+            Name = name,
+            AlternateName = service.AlternateName,
+            Description = service.Description,
+            Url = urlClass == VodimClassification.Valid ? service.Url : null,
+            Email = emailClass == VodimClassification.Valid ? service.Email : null,
+            Provider = providerRef is not null
+                ? new Dictionary<string, string> { ["@id"] = providerRef }
+                : null,
+            Location = locationRefs.Count > 0 ? locationRefs : null,
+            OpeningHoursSpecification = openingHours.Count > 0 ? openingHours : null,
+            ContactPoint = contactPoints.Count > 0 ? contactPoints : null,
+            AvailableLanguage = languages.Count > 0 ? languages : null,
+            Offers = offers.Count > 0 ? offers : null,
+            Audience = audience,
+            AreaServed = areasServed.Count > 0 ? areasServed : null,
+            AdditionalType = additionalTypes.Count > 0 ? additionalTypes : null,
+            Keywords = keywords.Count > 0 ? string.Join(", ", keywords) : null,
+            HasCredential = credentials,
+            TermsOfService = service.ApplicationProcess,
+            AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
+        };
+    }
+
+    // ── Organization mapping ─────────────────────────────────────────────────────
+
+    private SchemaOrgOrganization MapOrganization(
+        OrukOrganization org, TransformationOptions options, TransformationReport report)
+    {
+        // @id
+        var orgUri = options.OrganisationUri(org.Id);
+        Record(report, "organization.id", "Organization.@id",
+            VodimClassification.Valid, org.Id, orgUri);
+
+        // name
+        Record(report, "organization.name", "Organization.name",
+            string.IsNullOrWhiteSpace(org.Name)
+                ? VodimClassification.Missing : VodimClassification.Valid,
+            org.Name, org.Name);
+
+        // alternate_name
+        Record(report, "organization.alternate_name", "Organization.alternateName",
+            Classify(org.AlternateName), org.AlternateName, org.AlternateName);
+
+        // description
+        Record(report, "organization.description", "Organization.description",
+            Classify(org.Description), Truncate(org.Description), Truncate(org.Description));
+
+        // email
+        var (emailClass, emailNote) = ClassifyEmail(org.Email);
+        Record(report, "organization.email", "Organization.email",
+            emailClass, org.Email,
+            emailClass == VodimClassification.Valid ? org.Email : null, emailNote);
+
+        // url / website (prefer url, fall back to website)
+        var effectiveUrl = org.Url ?? org.Website;
+        var (urlClass, urlNote) = ClassifyUrl(effectiveUrl);
+        Record(report, "organization.url", "Organization.url",
+            urlClass, effectiveUrl,
+            urlClass == VodimClassification.Valid ? effectiveUrl : null, urlNote);
+        if (org.Url is null && org.Website is not null)
+            Record(report, "organization.website", "Organization.url",
+                VodimClassification.Other, org.Website, org.Website,
+                "Non-standard 'website' field used as fallback for 'url'.");
+
+        // legal_status → additionalProperty[legalStatus]
+        // (ORUK legal_status = type of legal entity e.g. "CIC"; Schema.org legalName = registered name)
+        Record(report, "organization.legal_status",
+            "Organization.additionalProperty[legalStatus]",
+            Classify(org.LegalStatus), org.LegalStatus, org.LegalStatus,
+            org.LegalStatus is not null
+                ? "Maps to additionalProperty; legal_status is entity-type not legal name." : null);
+
+        // logo → ImageObject
+        var (logoUrlClass, logoUrlNote) = ClassifyUrl(org.Logo);
+        Record(report, "organization.logo", "Organization.logo",
+            logoUrlClass, org.Logo,
+            logoUrlClass == VodimClassification.Valid ? org.Logo : null, logoUrlNote);
+
+        // uri → sameAs
+        var (uriClass, uriNote) = ClassifyUrl(org.Uri);
+        Record(report, "organization.uri", "Organization.sameAs",
+            uriClass, org.Uri,
+            uriClass == VodimClassification.Valid ? org.Uri : null, uriNote);
+
+        // year_incorporated → foundingDate
+        Record(report, "organization.year_incorporated", "Organization.foundingDate",
+            Classify(org.YearIncorporated), org.YearIncorporated, org.YearIncorporated);
+
+        // parent_organization_id → parentOrganization @id reference
+        Record(report, "organization.parent_organization_id",
+            "Organization.parentOrganization",
+            Classify(org.ParentOrganizationId),
+            org.ParentOrganizationId,
+            org.ParentOrganizationId is not null
+                ? options.OrganisationUri(org.ParentOrganizationId) : null);
+
+        // contacts → contactPoint
+        var contactPoints = MapOrganizationContacts(org.Contacts, org.Phones, report);
+
+        // additionalProperty
+        var additionalProps = new List<SchemaOrgPropertyValue>();
+        if (!string.IsNullOrWhiteSpace(org.LegalStatus))
+            additionalProps.Add(new SchemaOrgPropertyValue
+            {
+                Name = "legalStatus",
+                Value = org.LegalStatus
+            });
+
+        return new SchemaOrgOrganization
+        {
+            Id = orgUri,
+            Name = string.IsNullOrWhiteSpace(org.Name) ? null : org.Name,
+            AlternateName = org.AlternateName,
+            Description = org.Description,
+            Email = emailClass == VodimClassification.Valid ? org.Email : null,
+            Url = urlClass == VodimClassification.Valid ? effectiveUrl : null,
+            SameAs = uriClass == VodimClassification.Valid ? org.Uri : null,
+            Logo = logoUrlClass == VodimClassification.Valid
+                ? new SchemaOrgImageObject { Url = org.Logo } : null,
+            FoundingDate = org.YearIncorporated,
+            ParentOrganization = org.ParentOrganizationId is not null
+                ? new Dictionary<string, string>
+                    { ["@id"] = options.OrganisationUri(org.ParentOrganizationId) }
+                : null,
+            ContactPoint = contactPoints.Count > 0 ? contactPoints : null,
+            AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
+        };
+    }
+
+    // ── Location mapping ─────────────────────────────────────────────────────────
+
+    private SchemaOrgPlace MapLocation(
+        OrukLocation location, TransformationOptions options, TransformationReport report)
+    {
+        var locUri = options.LocationUri(location.Id);
+        Record(report, "location.id", "Place.@id", VodimClassification.Valid, location.Id, locUri);
+
+        Record(report, "location.name", "Place.name",
+            Classify(location.Name), location.Name, location.Name);
+
+        Record(report, "location.alternate_name", "Place.alternateName",
+            Classify(location.AlternateName), location.AlternateName, location.AlternateName);
+
+        Record(report, "location.description", "Place.description",
+            Classify(location.Description), Truncate(location.Description),
+            Truncate(location.Description));
+
+        // url
+        var (urlClass, urlNote) = ClassifyUrl(location.Url);
+        Record(report, "location.url", "Place.url",
+            urlClass, location.Url,
+            urlClass == VodimClassification.Valid ? location.Url : null, urlNote);
+
+        // transportation — no Schema.org mapping
+        Record(report, "location.transportation", "—",
+            Classify(location.Transportation) == VodimClassification.Missing
+                ? VodimClassification.Missing : VodimClassification.Other,
+            location.Transportation, null, "No Schema.org mapping defined for transportation.");
+
+        // latitude / longitude → GeoCoordinates
+        var (geoClass, geoNote, geo) = MapGeoCoordinates(location.Latitude, location.Longitude);
+        Record(report, "location.latitude+longitude", "Place.geo",
+            geoClass, $"({location.Latitude},{location.Longitude})",
+            geo is not null ? $"({geo.Latitude},{geo.Longitude})" : null, geoNote);
+
+        // uprn → identifier PropertyValue
+        var (uprnClass, uprnNote) = string.IsNullOrWhiteSpace(location.Uprn)
+            ? (VodimClassification.Missing, null)
+            : (VodimClassification.Valid, (string?)null);
+        Record(report, "location.uprn", "Place.identifier[UPRN]",
+            uprnClass, location.Uprn,
+            location.Uprn is not null ? location.Uprn : null, uprnNote);
+
+        // usrn → additionalProperty[usrn]
+        Record(report, "location.usrn", "Place.additionalProperty[usrn]",
+            Classify(location.Usrn), location.Usrn, location.Usrn);
+
+        // location_type → additionalProperty[locationType]
+        Record(report, "location.location_type", "Place.additionalProperty[locationType]",
+            Classify(location.LocationType), location.LocationType, location.LocationType);
+
+        // address (first physical address)
+        var primaryAddress = location.PhysicalAddresses.FirstOrDefault()
+            ?? location.PostalAddresses.FirstOrDefault();
+        var postalAddress = primaryAddress is not null
+            ? MapAddress(primaryAddress, report) : null;
+
+        // accessibility → amenityFeature
+        var amenityFeatures = MapAccessibility(location.Accessibility, report);
+
+        // external identifiers
+        var (extIdClass, extIdNote, extIdentifier) =
+            MapExternalIdentifiers(location.ExternalIdentifiers, report);
+        Record(report, "location.external_identifiers", "Place.identifier",
+            extIdClass, null, extIdentifier?.Value?.ToString(), extIdNote);
+
+        // phones
+        var phones = location.Phones
+            .Where(p => !string.IsNullOrWhiteSpace(p.Number))
+            .Select(p => p.Number!)
+            .ToList();
+        var telephone = phones.Count > 0 ? phones[0] : null;
+        if (phones.Count > 0)
+            Record(report, "location.phones", "Place.telephone",
+                VodimClassification.Valid, phones[0], phones[0],
+                phones.Count > 1 ? $"First of {phones.Count} phones used for telephone." : null);
+        else
+            Record(report, "location.phones", "Place.telephone",
+                VodimClassification.Missing);
+
+        // opening hours (location-level schedules)
+        var locSchedules = MapSchedules(
+            location.Schedules.ToList(), $"location[{location.Id}].schedules", report);
+
+        // additionalProperty
+        var additionalProps = BuildLocationAdditionalProperties(location);
+
+        return new SchemaOrgPlace
+        {
+            Id = locUri,
+            Name = location.Name,
+            AlternateName = location.AlternateName,
+            Description = location.Description,
+            Url = urlClass == VodimClassification.Valid ? location.Url : null,
+            Address = postalAddress,
+            Geo = geoClass == VodimClassification.Valid ? geo : null,
+            Telephone = telephone,
+            AmenityFeature = amenityFeatures.Count > 0 ? amenityFeatures : null,
+            OpeningHoursSpecification = locSchedules.Count > 0 ? locSchedules : null,
+            Identifier = extIdentifier,
+            AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
+        };
+    }
+
+    // ── Address mapping ──────────────────────────────────────────────────────────
+
+    private static SchemaOrgPostalAddress MapAddress(
+        OrukAddress address, TransformationReport report)
+    {
+        var prefix = "location.physical_addresses";
+        Record(report, $"{prefix}.address_1", "Place.address.streetAddress",
+            Classify(address.Address1), address.Address1, address.Address1);
+        Record(report, $"{prefix}.address_2", "Place.address.streetAddress",
+            string.IsNullOrWhiteSpace(address.Address2)
+                ? VodimClassification.Missing : VodimClassification.Other,
+            address.Address2, address.Address2,
+            address.Address2 is not null
+                ? "address_2 concatenated with address_1 or omitted; no separate Schema.org property." : null);
+        Record(report, $"{prefix}.city", "Place.address.addressLocality",
+            Classify(address.City), address.City, address.City);
+        Record(report, $"{prefix}.region", "Place.address.addressRegion",
+            Classify(address.Region), address.Region, address.Region);
+        Record(report, $"{prefix}.state_province", "Place.address.addressRegion",
+            Classify(address.StateProvince), address.StateProvince, address.StateProvince,
+            address.StateProvince is not null
+                ? "Maps to same target as region; whichever is non-null is used." : null);
+        Record(report, $"{prefix}.postal_code", "Place.address.postalCode",
+            Classify(address.PostalCode), address.PostalCode, address.PostalCode);
+        Record(report, $"{prefix}.country", "Place.address.addressCountry",
+            Classify(address.Country), address.Country, address.Country);
+
+        // Combine address lines
+        var streetParts = new[] { address.Address1, address.Address2 }
+            .Where(s => !string.IsNullOrWhiteSpace(s));
+        var streetAddress = string.Join(", ", streetParts);
+
+        return new SchemaOrgPostalAddress
+        {
+            StreetAddress = string.IsNullOrWhiteSpace(streetAddress) ? null : streetAddress,
+            AddressLocality = address.City,
+            AddressRegion = address.StateProvince ?? address.Region,
+            PostalCode = address.PostalCode,
+            AddressCountry = address.Country,
+        };
+    }
+
+    // ── Schedule → OpeningHoursSpecification ─────────────────────────────────────
+
+    private List<SchemaOrgOpeningHoursSpecification> MapSchedules(
+        IReadOnlyList<OrukSchedule> schedules, string sourcePrefix,
+        TransformationReport report)
+    {
+        if (schedules.Count == 0)
+        {
+            Record(report, sourcePrefix, "GovernmentService.openingHoursSpecification",
+                VodimClassification.Missing);
+            return [];
+        }
+
+        var result = new List<SchemaOrgOpeningHoursSpecification>();
+
+        for (var i = 0; i < schedules.Count; i++)
+        {
+            var schedule = schedules[i];
+            var prefix = $"{sourcePrefix}[{i}]";
+
+            // opens_at / closes_at
+            var (opensClass, opensNote) = ClassifyTime(schedule.OpensAt);
+            Record(report, $"{prefix}.opens_at", "OpeningHoursSpecification.opens",
+                opensClass, schedule.OpensAt,
+                opensClass == VodimClassification.Valid ? schedule.OpensAt : null, opensNote);
+
+            var (closesClass, closesNote) = ClassifyTime(schedule.ClosesAt);
+            Record(report, $"{prefix}.closes_at", "OpeningHoursSpecification.closes",
+                closesClass, schedule.ClosesAt,
+                closesClass == VodimClassification.Valid ? schedule.ClosesAt : null, closesNote);
+
+            // valid_from / valid_to
+            var (vfClass, vfNote) = ClassifyDate(schedule.ValidFrom);
+            Record(report, $"{prefix}.valid_from", "OpeningHoursSpecification.validFrom",
+                vfClass, schedule.ValidFrom,
+                vfClass == VodimClassification.Valid ? schedule.ValidFrom : null, vfNote);
+
+            var (vtClass, vtNote) = ClassifyDate(schedule.ValidTo);
+            Record(report, $"{prefix}.valid_to", "OpeningHoursSpecification.validThrough",
+                vtClass, schedule.ValidTo,
+                vtClass == VodimClassification.Valid ? schedule.ValidTo : null, vtNote);
+
+            // description
+            Record(report, $"{prefix}.description", "OpeningHoursSpecification.description",
+                Classify(schedule.Description),
+                Truncate(schedule.Description), Truncate(schedule.Description));
+
+            // iCalendar fields that have no Schema.org equivalent
+            RecordICalFields(schedule, prefix, report);
+
+            // byday → expand into one OpeningHoursSpecification per day
+            var expandedDays = ExpandByDay(schedule.ByDay, $"{prefix}.byday", report);
+
+            if (expandedDays.Count > 0)
+            {
+                foreach (var (dayUri, _) in expandedDays)
+                {
+                    result.Add(new SchemaOrgOpeningHoursSpecification
+                    {
+                        DayOfWeek = dayUri,
+                        Opens = opensClass == VodimClassification.Valid ? schedule.OpensAt : null,
+                        Closes = closesClass == VodimClassification.Valid ? schedule.ClosesAt : null,
+                        ValidFrom = vfClass == VodimClassification.Valid ? schedule.ValidFrom : null,
+                        ValidThrough = vtClass == VodimClassification.Valid ? schedule.ValidTo : null,
+                        Description = schedule.Description,
+                    });
+                }
+            }
+            else
+            {
+                // No day info — emit a date-range-only spec if we have dates/times
+                if (schedule.ValidFrom is not null || schedule.ValidTo is not null
+                    || schedule.OpensAt is not null || schedule.ClosesAt is not null)
+                {
+                    result.Add(new SchemaOrgOpeningHoursSpecification
+                    {
+                        Opens = opensClass == VodimClassification.Valid ? schedule.OpensAt : null,
+                        Closes = closesClass == VodimClassification.Valid ? schedule.ClosesAt : null,
+                        ValidFrom = vfClass == VodimClassification.Valid ? schedule.ValidFrom : null,
+                        ValidThrough = vtClass == VodimClassification.Valid ? schedule.ValidTo : null,
+                        Description = schedule.Description,
+                    });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Expands an RRULE BYDAY string (e.g. "MO,WE,FR") into a list of
+    /// (Schema.org day URI, VODIM classification) pairs, recording one report entry
+    /// per day token.
+    /// </summary>
+    private static List<(string DayUri, VodimClassification Class)> ExpandByDay(
+        string? byDay, string sourcePath, TransformationReport report)
+    {
+        if (string.IsNullOrWhiteSpace(byDay))
+        {
+            Record(report, sourcePath, "OpeningHoursSpecification.dayOfWeek",
+                VodimClassification.Missing);
+            return [];
+        }
+
+        var tokens = byDay.Split(',', StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries);
+        var result = new List<(string, VodimClassification)>();
+
+        foreach (var token in tokens)
+        {
+            // Strip leading ordinal digits/signs (e.g. "2MO" → "MO", "-1FR" → "FR")
+            var stripped = System.Text.RegularExpressions.Regex.Replace(token, @"^[-+]?\d*", "");
+
+            if (RruleDayToSchemaOrg.TryGetValue(stripped, out var schemaUri))
+            {
+                Record(report, sourcePath, "OpeningHoursSpecification.dayOfWeek",
+                    VodimClassification.Valid, token, schemaUri,
+                    stripped != token ? $"Ordinal prefix stripped from '{token}'; day-of-month detail lost." : null);
+                result.Add((schemaUri, VodimClassification.Valid));
+            }
+            else if (LongDayToSchemaOrg.TryGetValue(stripped, out var longSchemaUri))
+            {
+                Record(report, sourcePath, "OpeningHoursSpecification.dayOfWeek",
+                    VodimClassification.Other, token, longSchemaUri,
+                    $"Long-form day name '{token}' used instead of RRULE short-form.");
+                result.Add((longSchemaUri, VodimClassification.Other));
+            }
+            else
+            {
+                Record(report, sourcePath, "OpeningHoursSpecification.dayOfWeek",
+                    VodimClassification.Invalid, token, null,
+                    $"Unrecognised day-of-week token '{token}'. Field omitted.");
+            }
+        }
+
+        return result;
+    }
+
+    private static void RecordICalFields(
+        OrukSchedule schedule, string prefix, TransformationReport report)
+    {
+        // These iCalendar fields have no direct Schema.org OpeningHoursSpecification mapping.
+        // They are recorded as Other (present, no target) to preserve provenance.
+        RecordICalField(report, $"{prefix}.freq", schedule.Freq);
+        RecordICalField(report, $"{prefix}.interval", schedule.Interval?.ToString());
+        RecordICalField(report, $"{prefix}.count", schedule.Count?.ToString());
+        RecordICalField(report, $"{prefix}.until", schedule.Until);
+        RecordICalField(report, $"{prefix}.wkst", schedule.Wkst);
+        RecordICalField(report, $"{prefix}.bymonthday", schedule.ByMonthDay);
+        RecordICalField(report, $"{prefix}.dtstart", schedule.DtStart);
+        RecordICalField(report, $"{prefix}.timezone", schedule.Timezone);
+        RecordICalField(report, $"{prefix}.schedule_link", schedule.ScheduleLink,
+            "No Schema.org mapping. Could be surfaced as additionalProperty if needed.");
+        RecordICalField(report, $"{prefix}.attending_type", schedule.AttendingType,
+            "No Schema.org mapping. Could be surfaced as additionalProperty if needed.");
+        RecordICalField(report, $"{prefix}.notes", schedule.Notes,
+            "No Schema.org mapping for schedule notes.");
+    }
+
+    private static void RecordICalField(
+        TransformationReport report, string sourcePath, string? value, string? note = null)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        Record(report, sourcePath, "—",
+            VodimClassification.Other, value, null,
+            note ?? "iCalendar recurrence field — no Schema.org OpeningHoursSpecification equivalent.");
+    }
+
+    // ── Contacts + Phones → ContactPoint ─────────────────────────────────────────
+
+    private List<SchemaOrgContactPoint> MapServiceContacts(
+        ICollection<OrukContact> contacts,
+        ICollection<OrukPhone> directPhones,
+        TransformationReport report)
+    {
+        var result = new List<SchemaOrgContactPoint>();
+
+        // Direct service-level phones (no contact entity)
+        foreach (var phone in directPhones.Where(p => !string.IsNullOrWhiteSpace(p.Number)))
+        {
+            Record(report, "service.phones[].number", "GovernmentService.contactPoint.telephone",
+                VodimClassification.Valid, phone.Number, phone.Number);
+            result.Add(new SchemaOrgContactPoint
+            {
+                ContactType = "enquiries",
+                Telephone = phone.Number,
+            });
+        }
+        if (!directPhones.Any())
+            Record(report, "service.phones", "GovernmentService.contactPoint.telephone",
+                VodimClassification.Missing);
+
+        // Contacts (each maps to a ContactPoint)
+        foreach (var contact in contacts)
+        {
+            var cp = MapContact(contact, "service.contacts", report);
+            if (cp is not null) result.Add(cp);
+        }
+        if (!contacts.Any())
+            Record(report, "service.contacts", "GovernmentService.contactPoint",
+                VodimClassification.Missing);
+
+        return result;
+    }
+
+    private List<SchemaOrgContactPoint> MapOrganizationContacts(
+        ICollection<OrukContact> contacts,
+        ICollection<OrukPhone> directPhones,
+        TransformationReport report)
+    {
+        var result = new List<SchemaOrgContactPoint>();
+
+        foreach (var phone in directPhones.Where(p => !string.IsNullOrWhiteSpace(p.Number)))
+        {
+            Record(report, "organization.phones[].number", "Organization.contactPoint.telephone",
+                VodimClassification.Valid, phone.Number, phone.Number);
+            result.Add(new SchemaOrgContactPoint
+            {
+                ContactType = "enquiries",
+                Telephone = phone.Number,
+            });
+        }
+
+        foreach (var contact in contacts)
+        {
+            var cp = MapContact(contact, "organization.contacts", report);
+            if (cp is not null) result.Add(cp);
+        }
+
+        return result;
+    }
+
+    private static SchemaOrgContactPoint? MapContact(
+        OrukContact contact, string sourcePrefix, TransformationReport report)
+    {
+        var hasContent = !string.IsNullOrWhiteSpace(contact.Name)
+            || !string.IsNullOrWhiteSpace(contact.Email)
+            || !string.IsNullOrWhiteSpace(contact.Url)
+            || !string.IsNullOrWhiteSpace(contact.Title)
+            || !string.IsNullOrWhiteSpace(contact.Department)
+            || contact.Phones.Any(p => !string.IsNullOrWhiteSpace(p.Number));
+
+        if (!hasContent)
+        {
+            Record(report, $"{sourcePrefix}[{contact.Id}]", "ContactPoint",
+                VodimClassification.Missing, null, null,
+                "Contact has no mappable content.");
+            return null;
+        }
+
+        // name → contactType (role/purpose label)
+        var contactType = contact.Name ?? contact.Department;
+        Record(report, $"{sourcePrefix}[{contact.Id}].name", "ContactPoint.contactType",
+            Classify(contactType), contactType, contactType);
+
+        // title → name (person title)
+        Record(report, $"{sourcePrefix}[{contact.Id}].title", "ContactPoint.name",
+            Classify(contact.Title), contact.Title, contact.Title);
+
+        // email
+        var (emailClass, emailNote) = ClassifyEmail(contact.Email);
+        Record(report, $"{sourcePrefix}[{contact.Id}].email", "ContactPoint.email",
+            emailClass, contact.Email,
+            emailClass == VodimClassification.Valid ? contact.Email : null, emailNote);
+
+        // url
+        var (urlClass, urlNote) = ClassifyUrl(contact.Url);
+        Record(report, $"{sourcePrefix}[{contact.Id}].url", "ContactPoint.url",
+            urlClass, contact.Url,
+            urlClass == VodimClassification.Valid ? contact.Url : null, urlNote);
+
+        // phones
+        var firstPhone = contact.Phones.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Number));
+        if (firstPhone is not null)
+            Record(report, $"{sourcePrefix}[{contact.Id}].phones[0].number",
+                "ContactPoint.telephone", VodimClassification.Valid,
+                firstPhone.Number, firstPhone.Number);
+
+        // languages on contact
+        var langs = MapLanguages(contact.Languages, $"{sourcePrefix}[{contact.Id}].languages", report);
+
+        return new SchemaOrgContactPoint
+        {
+            ContactType = contactType,
+            Name = contact.Title,
+            Email = emailClass == VodimClassification.Valid ? contact.Email : null,
+            Url = urlClass == VodimClassification.Valid ? contact.Url : null,
+            Telephone = firstPhone?.Number,
+            AvailableLanguage = langs.Count > 0 ? langs : null,
+        };
+    }
+
+    // ── Languages ────────────────────────────────────────────────────────────────
+
+    private static List<SchemaOrgLanguage> MapLanguages(
+        ICollection<OrukLanguage> languages, string sourcePrefix, TransformationReport report)
+    {
+        if (!languages.Any())
+            return [];
+
+        var result = new List<SchemaOrgLanguage>();
+        foreach (var lang in languages)
+        {
+            Record(report, $"{sourcePrefix}[{lang.Id}].name", "Language.name",
+                Classify(lang.Name), lang.Name, lang.Name);
+            Record(report, $"{sourcePrefix}[{lang.Id}].code", "Language.identifier",
+                Classify(lang.Code), lang.Code, lang.Code);
+
+            result.Add(new SchemaOrgLanguage
+            {
+                Name = lang.Name,
+                Identifier = lang.Code,
+            });
+        }
+        return result;
+    }
+
+    // ── CostOption → Offer ───────────────────────────────────────────────────────
+
+    private List<SchemaOrgOffer> MapCostOptions(
+        ICollection<OrukCostOption> costOptions,
+        string? feesDescriptionFallback,
+        TransformationOptions options,
+        TransformationReport report)
+    {
+        if (!costOptions.Any())
+        {
+            Record(report, "service.cost_options", "GovernmentService.offers",
+                VodimClassification.Missing,
+                note: feesDescriptionFallback is not null
+                    ? "fees_description present but no structured cost_options." : null);
+            return [];
+        }
+
+        var result = new List<SchemaOrgOffer>();
+
+        for (var i = 0; i < costOptions.Count; i++)
+        {
+            var co = costOptions.ElementAt(i);
+            var prefix = $"service.cost_options[{i}]";
+
+            // amount / option → price
+            decimal price;
+            VodimClassification priceClass;
+            string? priceNote = null;
+            string? priceSource;
+
+            if (string.Equals(co.Option, "free", StringComparison.OrdinalIgnoreCase))
+            {
+                price = 0m;
+                priceClass = VodimClassification.Valid;
+                priceSource = "free";
+                priceNote = "option='free' normalised to price=0.";
+            }
+            else if (co.Amount.HasValue)
+            {
+                price = co.Amount.Value;
+                priceClass = co.Amount >= 0
+                    ? VodimClassification.Valid
+                    : VodimClassification.Invalid;
+                priceSource = co.Amount.Value.ToString();
+                if (priceClass == VodimClassification.Invalid)
+                    priceNote = "Negative amount is not valid for Schema.org Offer.price.";
+            }
+            else
+            {
+                price = 0m;
+                priceClass = VodimClassification.Default;
+                priceSource = null;
+                priceNote = "No amount or free option; defaulted to price=0.";
+            }
+            Record(report, $"{prefix}.amount", "Offer.price", priceClass,
+                priceSource, price.ToString(), priceNote);
+
+            // currency → priceCurrency
+            string currency;
+            VodimClassification currencyClass;
+            if (string.IsNullOrWhiteSpace(co.Currency))
+            {
+                currency = options.DefaultCurrency;
+                currencyClass = VodimClassification.Default;
+                Record(report, $"{prefix}.currency", "Offer.priceCurrency",
+                    currencyClass, null, currency,
+                    $"Currency absent; defaulted to '{options.DefaultCurrency}'.");
+            }
+            else
+            {
+                var (cc, cn) = ClassifyIso4217(co.Currency);
+                currency = cc == VodimClassification.Valid ? co.Currency : options.DefaultCurrency;
+                currencyClass = cc;
+                if (cc != VodimClassification.Valid)
+                    Record(report, $"{prefix}.currency", "Offer.priceCurrency",
+                        cc, co.Currency, currency, cn);
+                else
+                    Record(report, $"{prefix}.currency", "Offer.priceCurrency",
+                        cc, co.Currency, co.Currency);
+            }
+
+            // amount_description → description
+            Record(report, $"{prefix}.amount_description", "Offer.description",
+                Classify(co.AmountDescription), co.AmountDescription, co.AmountDescription);
+
+            // option (free-text label)
+            Record(report, $"{prefix}.option", "Offer.description",
+                Classify(co.Option), co.Option, co.Option,
+                co.Option is not null && !string.Equals(co.Option, "free", StringComparison.OrdinalIgnoreCase)
+                    ? "Free-text cost option label; not a controlled vocabulary." : null);
+
+            // valid_to → priceValidUntil
+            var (vtClass, vtNote) = ClassifyDate(co.ValidTo);
+            Record(report, $"{prefix}.valid_to", "Offer.priceValidUntil",
+                vtClass, co.ValidTo,
+                vtClass == VodimClassification.Valid ? co.ValidTo : null, vtNote);
+
+            // valid_from — no direct Schema.org Offer mapping
+            Record(report, $"{prefix}.valid_from", "—",
+                Classify(co.ValidFrom) == VodimClassification.Missing
+                    ? VodimClassification.Missing : VodimClassification.Other,
+                co.ValidFrom, null, "valid_from has no Schema.org Offer equivalent.");
+
+            if (priceClass != VodimClassification.Invalid)
+            {
+                result.Add(new SchemaOrgOffer
+                {
+                    Price = price,
+                    PriceCurrency = currency,
+                    Description = co.AmountDescription ?? co.Option,
+                    PriceValidUntil = vtClass == VodimClassification.Valid ? co.ValidTo : null,
+                });
+            }
+        }
+
+        return result;
+    }
+
+    // ── Eligibility → Audience ───────────────────────────────────────────────────
+
+    private static SchemaOrgAudience? MapAudience(
+        ICollection<OrukEligibility> eligibilities,
+        string? eligibilityDescription,
+        double? serviceMinAge,
+        double? serviceMaxAge,
+        TransformationReport report)
+    {
+        var hasDescription = !string.IsNullOrWhiteSpace(eligibilityDescription);
+        var (minClass, _, minVal) = ClassifyAge(serviceMinAge, "minimum_age");
+        var (maxClass, _, maxVal) = ClassifyAge(serviceMaxAge, "maximum_age");
+        var hasAgeConstraint = minVal.HasValue || maxVal.HasValue;
+
+        // Use structured eligibility if present
+        if (eligibilities.Any())
+        {
+            var first = eligibilities.First();
+            var (eMinClass, _, eMinVal) = ClassifyAge(first.MinimumAge, "eligibility.minimum_age");
+            var (eMaxClass, _, eMaxVal) = ClassifyAge(first.MaximumAge, "eligibility.maximum_age");
+
+            Record(report, "service.eligibility[0].description",
+                "GovernmentService.audience.description",
+                Classify(first.Description), first.Description, first.Description);
+            Record(report, "service.eligibility[0].minimum_age",
+                "GovernmentService.audience.suggestedMinAge",
+                eMinClass, first.MinimumAge?.ToString(), eMinVal?.ToString());
+            Record(report, "service.eligibility[0].maximum_age",
+                "GovernmentService.audience.suggestedMaxAge",
+                eMaxClass, first.MaximumAge?.ToString(), eMaxVal?.ToString());
+
+            if (eMinVal.HasValue || eMaxVal.HasValue)
+            {
+                return new SchemaOrgPeopleAudience
+                {
+                    Description = first.Description ?? eligibilityDescription,
+                    SuggestedMinAge = eMinVal,
+                    SuggestedMaxAge = eMaxVal,
+                };
+            }
+
+            return new SchemaOrgAudience
+            {
+                Description = first.Description ?? eligibilityDescription,
+            };
+        }
+
+        // Fall back to service-level age fields
+        if (!hasDescription && !hasAgeConstraint) return null;
+
+        if (hasAgeConstraint)
+        {
+            return new SchemaOrgPeopleAudience
+            {
+                Description = eligibilityDescription,
+                SuggestedMinAge = minVal,
+                SuggestedMaxAge = maxVal,
+            };
+        }
+
+        return new SchemaOrgAudience { Description = eligibilityDescription };
+    }
+
+    // ── ServiceArea → areaServed ─────────────────────────────────────────────────
+
+    private static List<object> MapServiceAreas(
+        ICollection<OrukServiceArea> areas, TransformationOptions options, TransformationReport report)
+    {
+        if (!areas.Any())
+        {
+            Record(report, "service.service_areas", "GovernmentService.areaServed",
+                VodimClassification.Missing);
+            return [];
+        }
+
+        var result = new List<object>();
+        for (var i = 0; i < areas.Count; i++)
+        {
+            var area = areas.ElementAt(i);
+            var prefix = $"service.service_areas[{i}]";
+
+            Record(report, $"{prefix}.name", "AdministrativeArea.name",
+                Classify(area.Name), area.Name, area.Name);
+
+            Record(report, $"{prefix}.extent", "AdministrativeArea.identifier",
+                Classify(area.Extent), area.Extent, area.Extent,
+                area.Extent is not null ? "ONS geographic code mapped as identifier." : null);
+
+            Record(report, $"{prefix}.extent_type", "AdministrativeArea.additionalProperty[extentType]",
+                Classify(area.ExtentType), area.ExtentType, area.ExtentType);
+
+            var (uriClass, _) = ClassifyUrl(area.Uri);
+            Record(report, $"{prefix}.uri", "AdministrativeArea.sameAs",
+                uriClass, area.Uri,
+                uriClass == VodimClassification.Valid ? area.Uri : null);
+
+            var areaAdditionalProps = new List<SchemaOrgPropertyValue>();
+            if (!string.IsNullOrWhiteSpace(area.ExtentType))
+                areaAdditionalProps.Add(new SchemaOrgPropertyValue
+                {
+                    Name = "extentType",
+                    Value = area.ExtentType
+                });
+
+            SchemaOrgPropertyValue? areaIdentifier = null;
+            if (!string.IsNullOrWhiteSpace(area.Extent))
+                areaIdentifier = new SchemaOrgPropertyValue
+                {
+                    Name = "extent",
+                    Value = area.Extent,
+                    PropertyId = area.ExtentType,
+                };
+
+            result.Add(new SchemaOrgAdministrativeArea
+            {
+                Name = area.Name,
+                SameAs = uriClass == VodimClassification.Valid ? area.Uri : null,
+                Identifier = areaIdentifier,
+                AdditionalProperty = areaAdditionalProps.Count > 0 ? areaAdditionalProps : null,
+            });
+        }
+
+        return result;
+    }
+
+    // ── Attributes / TaxonomyTerms → additionalType + keywords ───────────────────
+
+    private static (List<object> AdditionalTypes, List<string> Keywords) MapAttributes(
+        ICollection<OrukAttribute> attributes, string sourcePrefix, TransformationReport report)
+    {
+        var additionalTypes = new List<object>();
+        var keywords = new List<string>();
+
+        if (!attributes.Any())
+        {
+            Record(report, $"{sourcePrefix}.attributes", "Thing.additionalType",
+                VodimClassification.Missing);
+            return (additionalTypes, keywords);
+        }
+
+        for (var i = 0; i < attributes.Count; i++)
+        {
+            var attr = attributes.ElementAt(i);
+            var term = attr.TaxonomyTerm;
+            if (term is null) continue;
+
+            var termPrefix = $"{sourcePrefix}.attributes[{i}].taxonomy_term";
+
+            // Always add name to keywords
+            if (!string.IsNullOrWhiteSpace(term.Name))
+            {
+                keywords.Add(term.Name);
+                Record(report, $"{termPrefix}.name", "Thing.keywords",
+                    VodimClassification.Valid, term.Name, term.Name);
+            }
+            else
+            {
+                Record(report, $"{termPrefix}.name", "Thing.keywords",
+                    VodimClassification.Missing);
+            }
+
+            // Priority 1: term_uri is present
+            if (!string.IsNullOrWhiteSpace(term.TermUri))
+            {
+                Record(report, $"{termPrefix}.term_uri", "Thing.additionalType",
+                    VodimClassification.Valid, term.TermUri, term.TermUri);
+
+                additionalTypes.Add(new SchemaOrgDefinedTerm
+                {
+                    Id = term.TermUri,
+                    Name = term.Name,
+                    InDefinedTermSet = ExtractBaseUri(term.TermUri),
+                    TermCode = term.Code,
+                });
+                continue;
+            }
+
+            // Priority 2: code + known vocabulary → construct URI
+            if (!string.IsNullOrWhiteSpace(term.Code)
+                && !string.IsNullOrWhiteSpace(term.Taxonomy)
+                && KnownTaxonomyPrefixes.Contains(term.Taxonomy))
+            {
+                var constructed = ConstructTaxonomyUri(term.Taxonomy, term.Code);
+                if (constructed is not null)
+                {
+                    Record(report, $"{termPrefix}.code+taxonomy", "Thing.additionalType",
+                        VodimClassification.Valid, $"{term.Taxonomy}:{term.Code}", constructed,
+                        "URI constructed from taxonomy registry.");
+                    additionalTypes.Add(new SchemaOrgDefinedTerm
+                    {
+                        Id = constructed,
+                        Name = term.Name,
+                        InDefinedTermSet = ExtractBaseUri(constructed),
+                        TermCode = term.Code,
+                    });
+                    continue;
+                }
+            }
+
+            // Priority 3: keywords only
+            Record(report, $"{termPrefix}.code", "Thing.keywords",
+                string.IsNullOrWhiteSpace(term.Code)
+                    ? VodimClassification.Missing : VodimClassification.Other,
+                term.Code, null,
+                "No resolvable URI; term name added to keywords only.");
+        }
+
+        return (additionalTypes, keywords);
+    }
+
+    private static string? ConstructTaxonomyUri(string taxonomy, string code)
+    {
+        return taxonomy.ToLowerInvariant() switch
+        {
+            "esdstandards" or "esd standards"
+                => $"https://standards.esd.org.uk/?uri=esd%3Aservice%2F{Uri.EscapeDataString(code)}",
+            "snomed" or "snomed ct"
+                => $"http://snomed.info/sct/{Uri.EscapeDataString(code)}",
+            "loinc"
+                => $"http://loinc.org/{Uri.EscapeDataString(code)}",
+            "icd-10"
+                => $"http://hl7.org/fhir/sid/icd-10/{Uri.EscapeDataString(code)}",
+            _ => null
+        };
+    }
+
+    private static string? ExtractBaseUri(string uri)
+    {
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed)) return null;
+        return $"{parsed.Scheme}://{parsed.Host}/";
+    }
+
+    // ── Accessibility → LocationFeatureSpecification ──────────────────────────────
+
+    private static List<SchemaOrgLocationFeatureSpecification> MapAccessibility(
+        ICollection<OrukAccessibility> items, TransformationReport report)
+    {
+        if (!items.Any()) return [];
+
+        var result = new List<SchemaOrgLocationFeatureSpecification>();
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items.ElementAt(i);
+            var prefix = $"location.accessibility[{i}]";
+
+            Record(report, $"{prefix}.description",
+                "Place.amenityFeature.name",
+                Classify(item.Description), item.Description, item.Description);
+
+            if (!string.IsNullOrWhiteSpace(item.Description))
+            {
+                result.Add(new SchemaOrgLocationFeatureSpecification
+                {
+                    Name = item.Description,
+                    Value = (object?)item.Details ?? true,
+                });
+            }
+        }
+        return result;
+    }
+
+    // ── ExternalIdentifiers → identifier ─────────────────────────────────────────
+
+    private static (VodimClassification, string?, SchemaOrgPropertyValue?) MapExternalIdentifiers(
+        ICollection<OrukExternalIdentifier> ids, TransformationReport report)
+    {
+        var uprn = ids.FirstOrDefault(x =>
+            string.Equals(x.IdentifierScheme, "UPRN", StringComparison.OrdinalIgnoreCase));
+
+        if (uprn?.Identifier is not null)
+        {
+            return (VodimClassification.Valid, null,
+                new SchemaOrgPropertyValue
+                {
+                    Name = "UPRN",
+                    Value = uprn.Identifier,
+                    PropertyId = "UPRN",
+                });
+        }
+
+        return (VodimClassification.Missing, "No UPRN external identifier found.", null);
+    }
+
+    // ── AdditionalProperty builders ───────────────────────────────────────────────
+
+    private static List<SchemaOrgPropertyValue> BuildServiceAdditionalProperties(OrukService service)
+    {
+        var props = new List<SchemaOrgPropertyValue>();
+        if (!string.IsNullOrWhiteSpace(service.Status))
+            props.Add(new SchemaOrgPropertyValue { Name = "orukStatus", Value = service.Status });
+        if (!string.IsNullOrWhiteSpace(service.AssuredDate))
+            props.Add(new SchemaOrgPropertyValue { Name = "assuredDate", Value = service.AssuredDate });
+        if (!string.IsNullOrWhiteSpace(service.AssurerEmail))
+            props.Add(new SchemaOrgPropertyValue { Name = "assuredBy", Value = service.AssurerEmail });
+        if (!string.IsNullOrWhiteSpace(service.WaitTime))
+            props.Add(new SchemaOrgPropertyValue { Name = "waitTime", Value = service.WaitTime });
+        return props;
+    }
+
+    private static List<SchemaOrgPropertyValue> BuildLocationAdditionalProperties(OrukLocation location)
+    {
+        var props = new List<SchemaOrgPropertyValue>();
+        if (!string.IsNullOrWhiteSpace(location.Usrn))
+            props.Add(new SchemaOrgPropertyValue { Name = "usrn", Value = location.Usrn });
+        if (!string.IsNullOrWhiteSpace(location.LocationType))
+            props.Add(new SchemaOrgPropertyValue { Name = "locationType", Value = location.LocationType });
+        return props;
+    }
+
+    // ── GeoCoordinates validation ─────────────────────────────────────────────────
+
+    private static (VodimClassification Class, string? Note, SchemaOrgGeoCoordinates? Geo)
+        MapGeoCoordinates(double? latitude, double? longitude)
+    {
+        if (latitude is null && longitude is null)
+            return (VodimClassification.Missing, null, null);
+
+        if (latitude is null || longitude is null)
+            return (VodimClassification.Invalid,
+                "Only one of latitude/longitude is present; GeoCoordinates requires both.", null);
+
+        if (latitude < -90 || latitude > 90)
+            return (VodimClassification.Invalid,
+                $"Latitude {latitude} is outside the valid range −90 to 90.", null);
+
+        if (longitude < -180 || longitude > 180)
+            return (VodimClassification.Invalid,
+                $"Longitude {longitude} is outside the valid range −180 to 180.", null);
+
+        return (VodimClassification.Valid, null,
+            new SchemaOrgGeoCoordinates
+            {
+                Latitude = (decimal)latitude.Value,
+                Longitude = (decimal)longitude.Value,
+            });
+    }
+
+    // ── Field-level validators ────────────────────────────────────────────────────
+
+    private static VodimClassification Classify(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? VodimClassification.Missing : VodimClassification.Valid;
+
+    private static (VodimClassification Class, string? Note) ClassifyUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            return (VodimClassification.Valid, null);
+        return (VodimClassification.Invalid,
+            $"Value '{Truncate(value, 80)}' is not a valid absolute HTTP/HTTPS URL.");
+    }
+
+    private static (VodimClassification Class, string? Note) ClassifyEmail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        try
+        {
+            _ = new System.Net.Mail.MailAddress(value);
+            return (VodimClassification.Valid, null);
+        }
+        catch
+        {
+            return (VodimClassification.Invalid,
+                $"Value '{Truncate(value, 80)}' is not a valid email address.");
+        }
+    }
+
+    private static (VodimClassification Class, string? Note) ClassifyDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        if (DateTimeOffset.TryParse(value, out _) || DateOnly.TryParse(value, out _))
+            return (VodimClassification.Valid, null);
+        return (VodimClassification.Invalid,
+            $"Value '{Truncate(value, 40)}' is not a parseable ISO 8601 date.");
+    }
+
+    private static (VodimClassification Class, string? Note) ClassifyTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        if (TimeOnly.TryParse(value, out _)) return (VodimClassification.Valid, null);
+        return (VodimClassification.Invalid,
+            $"Value '{Truncate(value, 40)}' is not a parseable ISO 8601 time.");
+    }
+
+    private static (VodimClassification Class, string? Note) ClassifyOrukStatus(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        if (ValidOrukStatuses.Contains(value)) return (VodimClassification.Valid, null);
+        return (VodimClassification.Other,
+            $"'{value}' is not in the ORUK status vocabulary " +
+            $"(active|inactive|defunct|temporarily closed).");
+    }
+
+    private static (VodimClassification Class, string? Note) ClassifyIso4217(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        // ISO 4217 requires exactly 3 uppercase ASCII letters.
+        // Full list validation is omitted deliberately: we accept any structurally-valid
+        // code rather than maintain a static list of ~150 codes that can change.
+        // A structurally invalid value (wrong length or non-letter characters) is Invalid;
+        // an unknown-but-structurally-valid code is treated as Valid to be receive-liberal.
+        if (value.Length == 3 && value.All(char.IsAsciiLetterUpper))
+            return (VodimClassification.Valid, null);
+        return (VodimClassification.Invalid,
+            $"'{value}' does not appear to be a valid ISO 4217 3-letter currency code.");
+    }
+
+    private static (VodimClassification Class, string? Note, double? Value)
+        ClassifyAge(double? value, string fieldName)
+    {
+        if (value is null) return (VodimClassification.Missing, null, null);
+        if (value == -1)
+            return (VodimClassification.Other,
+                $"{fieldName}=-1 is a common sentinel for 'no constraint' but is not standard ORUK.",
+                null);
+        if (value < 0)
+            return (VodimClassification.Invalid,
+                $"{fieldName}={value} is negative. Schema.org suggestedMinAge/MaxAge must be ≥ 0.",
+                null);
+        if (value > MaxPlausibleHumanAge)
+            return (VodimClassification.Invalid,
+                $"{fieldName}={value} exceeds plausible maximum human age ({MaxPlausibleHumanAge}).",
+                null);
+        return (VodimClassification.Valid, null, value);
+    }
+
+    // ── Required-field helper ─────────────────────────────────────────────────────
+
+    private static string? MapRequiredString(
+        TransformationReport report, string sourcePath, string targetPath, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Record(report, sourcePath, targetPath, VodimClassification.Missing, null, null,
+                $"Required field '{sourcePath}' is absent.");
+            return null;
+        }
+        Record(report, sourcePath, targetPath, VodimClassification.Valid, value, value);
+        return value;
+    }
+
+    // ── Collection-level reporting helpers ────────────────────────────────────────
+
+    private static void RecordIfMapped(
+        TransformationReport report, string sourcePath, string targetPath,
+        string? sourceValue, string? mappedValue)
+    {
+        if (sourceValue is not null && mappedValue is not null)
+            Record(report, sourcePath, targetPath,
+                VodimClassification.Valid, sourceValue, mappedValue);
+    }
+
+    private static void RecordCollectionMapping(
+        TransformationReport report, string sourcePath, string targetPath,
+        int sourceCount, int mappedCount)
+    {
+        if (sourceCount == 0)
+            Record(report, sourcePath, targetPath, VodimClassification.Missing,
+                "0", "0");
+        else
+            Record(report, sourcePath, targetPath, VodimClassification.Valid,
+                sourceCount.ToString(), mappedCount.ToString(),
+                mappedCount < sourceCount
+                    ? $"{sourceCount - mappedCount} items had no mappable location." : null);
+    }
+
+    // ── Core Record() helper ──────────────────────────────────────────────────────
+
+    private static void Record(
+        TransformationReport report,
+        string sourcePath,
+        string targetPath,
+        VodimClassification classification,
+        string? sourceValue = null,
+        string? mappedValue = null,
+        string? note = null)
+    {
+        report.Add(new FieldMappingRecord
+        {
+            SourcePath = sourcePath,
+            TargetPath = targetPath,
+            Classification = classification,
+            SourceValue = Truncate(sourceValue, 200),
+            MappedValue = Truncate(mappedValue, 200),
+            Note = note,
+        });
+    }
+
+    private static string? Truncate(string? s, int max = 200) =>
+        s is null ? null : s.Length <= max ? s : s[..max] + "…";
+}

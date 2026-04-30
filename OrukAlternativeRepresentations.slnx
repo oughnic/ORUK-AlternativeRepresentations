@@ -1,5 +1,10 @@
 <Solution>
+  <Folder Name="/code/">
+    <Project Path="code/OrukModels/OrukModels.csproj" />
+    <Project Path="code/OrukModels.Tests/OrukModels.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/OrukTransformer.Core/OrukTransformer.Core.csproj" />
+    <Project Path="src/OrukTransformer.Core.Tests/OrukTransformer.Core.Tests.csproj" />
   </Folder>
 </Solution>

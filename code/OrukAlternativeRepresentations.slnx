@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="../src/OrukTransformer.Core.Tests/OrukTransformer.Core.Tests.csproj" />
+  <Project Path="../src/OrukTransformer.Core/OrukTransformer.Core.csproj" />
   <Project Path="OrukModels.Tests/OrukModels.Tests.csproj" />
   <Project Path="OrukModels/OrukModels.csproj" />
 </Solution>
