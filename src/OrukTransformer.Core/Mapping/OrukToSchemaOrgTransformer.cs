@@ -19,6 +19,14 @@ namespace OrukTransformer.Core.Mapping;
 /// </remarks>
 public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
 {
+    // ── Constants ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Upper bound for a plausible human age in years.
+    /// Values above this are classified as Invalid.
+    /// </summary>
+    private const double MaxPlausibleHumanAge = 130;
+
     // ── ORUK vocabulary constants ────────────────────────────────────────────────
 
     private static readonly HashSet<string> ValidOrukStatuses =
@@ -1388,8 +1396,12 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
     private static (VodimClassification Class, string? Note) ClassifyIso4217(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
-        // ISO 4217: 3 uppercase letters
-        if (value.Length == 3 && value.All(char.IsAsciiLetter))
+        // ISO 4217 requires exactly 3 uppercase ASCII letters.
+        // Full list validation is omitted deliberately: we accept any structurally-valid
+        // code rather than maintain a static list of ~150 codes that can change.
+        // A structurally invalid value (wrong length or non-letter characters) is Invalid;
+        // an unknown-but-structurally-valid code is treated as Valid to be receive-liberal.
+        if (value.Length == 3 && value.All(char.IsAsciiLetterUpper))
             return (VodimClassification.Valid, null);
         return (VodimClassification.Invalid,
             $"'{value}' does not appear to be a valid ISO 4217 3-letter currency code.");
@@ -1407,9 +1419,9 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             return (VodimClassification.Invalid,
                 $"{fieldName}={value} is negative. Schema.org suggestedMinAge/MaxAge must be ≥ 0.",
                 null);
-        if (value > 130)
+        if (value > MaxPlausibleHumanAge)
             return (VodimClassification.Invalid,
-                $"{fieldName}={value} exceeds plausible maximum human age.",
+                $"{fieldName}={value} exceeds plausible maximum human age ({MaxPlausibleHumanAge}).",
                 null);
         return (VodimClassification.Valid, null, value);
     }
