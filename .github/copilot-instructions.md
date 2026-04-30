@@ -147,3 +147,69 @@ See [`plan/standards/`](plan/standards/README.md) for full descriptions of:
 - [Technical approach](plan/approach.md)
 - [ORUK → Schema.org field mapping](plan/mapping.md)
 - [Terminology and vocabulary mapping](plan/terminology.md)
+
+---
+
+## Repository Folder Structure
+
+All code lives under `code/` at the repository root.  Do not create source files outside of this directory.
+
+```
+/
+├── .github/
+│   └── copilot-instructions.md        # This file – always keep up to date
+├── code/
+│   ├── README.md                      # Code directory overview – ALWAYS maintain
+│   ├── OrukAlternativeRepresentations.sln
+│   ├── OrukModels/                    # Core ORUK v3 model class library
+│   │   ├── README.md                  # ALWAYS maintain
+│   │   ├── OrukModels.csproj
+│   │   └── Models/                    # C# record types mirroring ORUK v3 schema
+│   ├── OrukTransformer.Core/          # (future) Transformation business logic
+│   │   └── README.md                  # ALWAYS maintain
+│   ├── OrukTransformer.Api/           # (future) ASP.NET Core Minimal API host
+│   │   └── README.md                  # ALWAYS maintain
+│   └── OrukModels.Tests/              # xUnit test project
+│       ├── README.md                  # ALWAYS maintain
+│       ├── OrukModels.Tests.csproj
+│       └── fixtures/                  # Small representative ORUK JSON samples
+├── feeds.json                         # List of ORUK endpoint URLs (configuration)
+├── plan/                              # Planning documents (read-only during coding)
+├── Dockerfile
+└── README.md
+```
+
+### Rules
+
+- Every new directory **must** have a `README.md` explaining its purpose.
+- The `README.md` in each directory **must** be kept up to date whenever code in that directory changes.
+- When adding a new project directory, also add its `README.md` and register the project in the solution.
+- Class libraries reside in `code/<ProjectName>/`; test projects in `code/<ProjectName>.Tests/`.
+
+---
+
+## Language and Approach
+
+### Language: C# 13 / .NET 10
+
+- Target `net10.0` in all `.csproj` files.
+- Use C# 13 language features where appropriate (primary constructors, collection expressions, etc.).
+- All new code files must have `<Nullable>enable</Nullable>` and `<ImplicitUsings>enable</ImplicitUsings>`.
+
+### Model Layer (`OrukModels`)
+
+- **Entity models** (those that map to ORUK entities: `OrukService`, `OrukOrganization`, `OrukLocation`, etc.) use **`class`** types with mutable `{ get; set; }` properties.  This is required for Entity Framework Core compatibility: EF needs mutable properties for change tracking and supports lazy loading via `virtual` navigation properties.
+- **Immutable value objects and response wrappers** (e.g. `OrukPage<T>`, `OrukExtensionProperty`) use **`record`** types with `{ get; init; }` properties.  These are never managed by EF.
+- Property names use **PascalCase** in C#; JSON serialisation maps to **snake_case** using `[JsonPropertyName]` attributes.
+- Every model property that is optional in ORUK must be typed as nullable (`string?`, `int?`, etc.).
+- Navigation properties on entity classes must be `virtual` to support EF Core lazy loading.
+- Do not introduce `Newtonsoft.Json`; use `System.Text.Json` throughout.
+- The `OrukModels` project has no dependency on ASP.NET Core or any HTTP framework.
+
+### Test Layer (`OrukModels.Tests`)
+
+- Use **xUnit** as the test framework.
+- Use **NSubstitute** for mocking.
+- Store representative ORUK JSON fixture files under `code/OrukModels.Tests/fixtures/`.
+- Fixtures are sourced from live ORUK feeds (e.g. Bristol Open Place Directory) and checked in as static JSON files.
+- Tests must deserialise fixtures and assert that model properties are correctly populated — they must not make live HTTP calls.

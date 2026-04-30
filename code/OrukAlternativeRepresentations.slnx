@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="OrukModels.Tests/OrukModels.Tests.csproj" />
+  <Project Path="OrukModels/OrukModels.csproj" />
+</Solution>
