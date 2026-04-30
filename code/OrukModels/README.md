@@ -1,12 +1,17 @@
 # OrukModels
 
-Core class library providing C# model types for Open Referral UK (ORUK) v3 / HSDS v3.0 data.
+Core class library providing C# model types for:
+- **Open Referral UK (ORUK) v3 / HSDS v3.0** input data (`Models/` namespace)
+- **Schema.org JSON-LD** output representations (`SchemaOrg/` namespace)
 
 ## Purpose
 
-This library defines the entity model used to deserialise ORUK v3 API responses and serve as
-the input to all transformation pipelines (Schema.org, FHIR, MCP).  It has no dependencies on
-ASP.NET Core or any HTTP framework, and is intentionally thin — pure model classes only.
+This library defines:
+
+1. **ORUK entity models** (`Models/`) — used to deserialise ORUK v3 API responses; the input to all transformation pipelines.
+2. **Schema.org output models** (`SchemaOrg/`) — used to serialise service-directory data as Schema.org JSON-LD for search engines and AI agents.
+
+It has no dependencies on ASP.NET Core or any HTTP framework, and is intentionally thin — pure model classes only.
 
 ## Design Principles
 
@@ -132,3 +137,10 @@ var service = JsonSerializer.Deserialize<OrukService>(json, options);
 
 > **README maintenance:** This `README.md` must be updated whenever a new model class is added,
 > an existing class changes significantly, or the design principles are revised.
+
+## Sub-directories
+
+| Directory | Contents |
+|-----------|----------|
+| `Models/` | ORUK v3 / HSDS entity model classes |
+| `SchemaOrg/` | Schema.org JSON-LD output record types — see [`SchemaOrg/README.md`](SchemaOrg/README.md) |
