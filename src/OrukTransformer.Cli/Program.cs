@@ -34,6 +34,14 @@ var verboseOption = new Option<bool>("--verbose")
     DefaultValueFactory = _ => false
 };
 
+var dataQualityReportOption = new Option<FileInfo?>("--data-quality-report")
+{
+    Description = "Write an xHTML5 data-quality report to this file. " +
+                  "When omitted the report is not generated. " +
+                  "Supply a path, e.g. --data-quality-report oruk-schema_org.html",
+    DefaultValueFactory = _ => null
+};
+
 // ── Root command ──────────────────────────────────────────────────────────────
 
 var rootCommand = new RootCommand(
@@ -43,7 +51,8 @@ var rootCommand = new RootCommand(
     orukUrlOption,
     jsonLdOption,
     maxRecordsOption,
-    verboseOption
+    verboseOption,
+    dataQualityReportOption
 };
 
 rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
@@ -58,6 +67,7 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     var jsonLd = parseResult.GetValue(jsonLdOption);
     var maxRecords = parseResult.GetValue(maxRecordsOption);
     var verbose = parseResult.GetValue(verboseOption);
+    var dataQualityReport = parseResult.GetValue(dataQualityReportOption);
 
     // ── HTTP client ───────────────────────────────────────────────────────────
 
@@ -82,6 +92,7 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     var merger = new JsonLdMerger();
     var writer = new JsonLdWriter();
     var reporter = new VodimReporter();
+    var dataQualityReportWriter = new HtmlDataQualityReportWriter();
 
     var runner = new RunCommand(
         fetcher,
@@ -89,10 +100,11 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
         merger,
         writer,
         reporter,
+        dataQualityReportWriter,
         loggerFactory.CreateLogger<RunCommand>());
 
     var exitCode = await runner.ExecuteAsync(orukUrl, jsonLd, maxRecords, verbose,
-        cancellationToken);
+        dataQualityReport, cancellationToken);
     Environment.Exit(exitCode);
 });
 

@@ -16,6 +16,7 @@ public sealed class RunCommand
     private readonly IJsonLdMerger _merger;
     private readonly IJsonLdWriter _writer;
     private readonly IVodimReporter _reporter;
+    private readonly IDataQualityReportWriter _dataQualityReportWriter;
     private readonly ILogger<RunCommand> _logger;
 
     public RunCommand(
@@ -24,6 +25,7 @@ public sealed class RunCommand
         IJsonLdMerger merger,
         IJsonLdWriter writer,
         IVodimReporter reporter,
+        IDataQualityReportWriter dataQualityReportWriter,
         ILogger<RunCommand> logger)
     {
         _fetcher = fetcher;
@@ -31,6 +33,7 @@ public sealed class RunCommand
         _merger = merger;
         _writer = writer;
         _reporter = reporter;
+        _dataQualityReportWriter = dataQualityReportWriter;
         _logger = logger;
     }
 
@@ -48,6 +51,10 @@ public sealed class RunCommand
     /// When <c>true</c>, per-service field-level VODIM detail is written in
     /// addition to the summary.
     /// </param>
+    /// <param name="dataQualityReportFile">
+    /// When non-<c>null</c>, an xHTML5 data-quality report is written to this
+    /// file in addition to the standard VODIM console output.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// <c>0</c> on success, <c>1</c> if no services could be fetched.
@@ -57,6 +64,7 @@ public sealed class RunCommand
         FileInfo? jsonLdFile,
         int maxRecords,
         bool verbose,
+        FileInfo? dataQualityReportFile,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
@@ -92,9 +100,19 @@ public sealed class RunCommand
         // 4. Write JSON-LD output
         await _writer.WriteAsync(merged, jsonLdFile, cancellationToken);
 
-        // 5. Write VODIM report
+        // 5. Write VODIM console report
         var reports = results.Select(r => r.Report).ToList();
         _reporter.WriteReport(reports, orukUrl, verbose, jsonLdToFile: jsonLdFile is not null);
+
+        // 6. Optionally write HTML data-quality report
+        if (dataQualityReportFile is not null)
+        {
+            await _dataQualityReportWriter.WriteAsync(reports, orukUrl, dataQualityReportFile,
+                cancellationToken);
+            _logger.LogInformation("Data-quality report written to {File}.",
+                dataQualityReportFile.FullName);
+            Console.Error.WriteLine($"Data-quality report written to: {dataQualityReportFile.FullName}");
+        }
 
         return 0;
     }
