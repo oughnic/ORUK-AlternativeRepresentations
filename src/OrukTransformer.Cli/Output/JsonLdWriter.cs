@@ -9,6 +9,8 @@ namespace OrukTransformer.Cli.Output;
 /// </summary>
 public sealed class JsonLdWriter : IJsonLdWriter
 {
+    private static readonly byte[] Newline = [(byte)'\n'];
+
     /// <inheritdoc/>
     public async Task WriteAsync(
         SchemaOrgDocument document,
@@ -43,7 +45,7 @@ public sealed class JsonLdWriter : IJsonLdWriter
                 cancellationToken);
 
             // Newline after the JSON so the terminal prompt appears on a fresh line
-            await stdoutStream.WriteAsync("\n"u8.ToArray(), cancellationToken);
+            await stdoutStream.WriteAsync(Newline, cancellationToken);
         }
     }
 }
