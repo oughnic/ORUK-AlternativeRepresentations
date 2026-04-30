@@ -19,7 +19,7 @@ public class VodimReporterTests
     private static TransformationReport BuildReport(
         string serviceId,
         int valid = 0, int other = 0, int defaults = 0,
-        int invalid = 0, int missing = 0)
+        int invalid = 0, int missing = 0, int unmapped = 0)
     {
         var report = new TransformationReport(serviceId);
         AddRecords(report, VodimClassification.Valid, valid);
@@ -27,6 +27,7 @@ public class VodimReporterTests
         AddRecords(report, VodimClassification.Default, defaults);
         AddRecords(report, VodimClassification.Invalid, invalid);
         AddRecords(report, VodimClassification.Missing, missing);
+        AddRecords(report, VodimClassification.Unmapped, unmapped);
         return report;
     }
 
@@ -74,7 +75,18 @@ public class VodimReporterTests
         Assert.Contains("D Default", text);
         Assert.Contains("I Invalid", text);
         Assert.Contains("M Missing", text);
+        Assert.Contains("U Unmapped", text);
         Assert.Contains("Total fields:", text);
+    }
+
+    [Fact]
+    public void BuildSummaryText_UnmappedFields_AppearsInSummary()
+    {
+        var report = BuildReport("svc-1", valid: 5, unmapped: 3);
+        var text = VodimReporter.BuildSummaryText([report], SourceUrl);
+
+        Assert.Contains("U Unmapped", text);
+        Assert.Contains("     3", text);
     }
 
     [Fact]

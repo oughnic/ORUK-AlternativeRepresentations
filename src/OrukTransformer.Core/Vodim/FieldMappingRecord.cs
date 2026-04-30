@@ -7,7 +7,9 @@ namespace OrukTransformer.Core.Vodim;
 /// One <see cref="FieldMappingRecord"/> is produced for every ORUK field that
 /// <em>could potentially be mapped</em>, regardless of whether mapping succeeded.
 /// Fields that have no Schema.org mapping have <see cref="TargetPath"/> set to
-/// <c>"—"</c> and a <see cref="Classification"/> of <see cref="VodimClassification.Missing"/>.
+/// <c>"—"</c> and a <see cref="Classification"/> of
+/// <see cref="VodimClassification.Unmapped"/> (when a value is present) or
+/// <see cref="VodimClassification.Missing"/> (when absent).
 /// </summary>
 public record FieldMappingRecord
 {

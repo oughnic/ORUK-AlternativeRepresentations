@@ -17,7 +17,7 @@ namespace OrukTransformer.Core.Mapping;
 /// <remarks>
 /// Mapping rules follow <c>plan/mapping.md</c> in the repository.
 /// </remarks>
-public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
+public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
 {
     // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -126,20 +126,24 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         Record(report, "service.alternate_name", "GovernmentService.alternateName",
             Classify(service.AlternateName), service.AlternateName, service.AlternateName);
 
-        // description
+        // description — HTML stripped for schema.org compatibility
+        var description = StripHtml(service.Description);
         Record(report, "service.description", "GovernmentService.description",
-            Classify(service.Description), Truncate(service.Description), Truncate(service.Description));
+            Classify(service.Description), Truncate(service.Description), Truncate(description),
+            HtmlNote(service.Description));
 
         // url
         var (urlClass, urlNote) = ClassifyUrl(service.Url);
         Record(report, "service.url", "GovernmentService.url",
             urlClass, service.Url, urlClass == VodimClassification.Valid ? service.Url : null, urlNote);
 
-        // email
-        var (emailClass, emailNote) = ClassifyEmail(service.Email);
-        Record(report, "service.email", "GovernmentService.email",
-            emailClass, service.Email,
-            emailClass == VodimClassification.Valid ? service.Email : null, emailNote);
+        // email — no schema.org mapping; service-level email is not representable
+        // as a property of GovernmentService or its ContactPoint in schema.org.
+        Record(report, "service.email", "—",
+            string.IsNullOrWhiteSpace(service.Email)
+                ? VodimClassification.Missing : VodimClassification.Unmapped,
+            service.Email, null,
+            "No schema.org mapping for service-level email. Field is intentionally omitted from output.");
 
         // status → additionalProperty[orukStatus]
         var (statusClass, statusNote) = ClassifyOrukStatus(service.Status);
@@ -150,28 +154,42 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             statusNote);
 
         // interpretation_services → availableLanguage (free-text fallback if no language entities)
+        var interpretationServices = StripHtml(service.InterpretationServices);
+        var interpretationNote = service.InterpretationServices is not null
+            ? string.Join(" ", new[]
+              {
+                  "Mapped as free-text Language name. Prefer service.languages collection.",
+                  HtmlNote(service.InterpretationServices)
+              }.Where(n => n is not null))
+            : null;
         Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
             Classify(service.InterpretationServices),
-            service.InterpretationServices, service.InterpretationServices,
-            service.InterpretationServices is not null
-                ? "Mapped as free-text Language name. Prefer service.languages collection."
-                : null);
+            service.InterpretationServices, interpretationServices,
+            string.IsNullOrWhiteSpace(interpretationNote) ? null : interpretationNote);
 
-        // application_process → termsOfService
+        // application_process → termsOfService — HTML stripped for schema.org compatibility
+        var applicationProcess = StripHtml(service.ApplicationProcess);
         Record(report, "service.application_process", "GovernmentService.termsOfService",
             Classify(service.ApplicationProcess),
-            Truncate(service.ApplicationProcess), Truncate(service.ApplicationProcess));
+            Truncate(service.ApplicationProcess), Truncate(applicationProcess),
+            HtmlNote(service.ApplicationProcess));
 
-        // fees_description → used as fallback in Offer.description
+        // fees_description → used as fallback in Offer.description — HTML stripped
+        var feesDescription = StripHtml(service.FeesDescription);
         Record(report, "service.fees_description", "GovernmentService.offers[].description",
             Classify(service.FeesDescription),
-            service.FeesDescription, service.FeesDescription,
+            service.FeesDescription, feesDescription,
             service.FeesDescription is not null
-                ? "Used as fallback offer description when no cost_options are present." : null);
+                ? string.Join(" ", new[]
+                  {
+                      "Used as fallback offer description when no cost_options are present.",
+                      HtmlNote(service.FeesDescription)
+                  }.Where(n => n is not null))
+                : null);
 
         // fees (deprecated)
         Record(report, "service.fees", "—",
-            string.IsNullOrEmpty(service.Fees) ? VodimClassification.Missing : VodimClassification.Other,
+            string.IsNullOrEmpty(service.Fees) ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.Fees, null,
             "Deprecated HSDS field — superseded by cost_options. No Schema.org mapping.");
 
@@ -183,14 +201,18 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             service.WaitTime, service.WaitTime,
             service.WaitTime is not null ? "Deprecated HSDS field. Preserved in additionalProperty." : null);
 
-        // accreditations → hasCredential
+        // accreditations → hasCredential — HTML stripped
+        var accreditations = StripHtml(service.Accreditations);
         Record(report, "service.accreditations", "GovernmentService.hasCredential",
-            Classify(service.Accreditations), service.Accreditations, service.Accreditations);
+            Classify(service.Accreditations), service.Accreditations, accreditations,
+            HtmlNote(service.Accreditations));
 
-        // eligibility_description → audience.description
+        // eligibility_description → audience.description — HTML stripped
+        var eligibilityDescription = StripHtml(service.EligibilityDescription);
         Record(report, "service.eligibility_description", "GovernmentService.audience.description",
             Classify(service.EligibilityDescription),
-            Truncate(service.EligibilityDescription), Truncate(service.EligibilityDescription));
+            Truncate(service.EligibilityDescription), Truncate(eligibilityDescription),
+            HtmlNote(service.EligibilityDescription));
 
         // minimum_age
         var (minAgeClass, minAgeNote, minAgeVal) = ClassifyAge(service.MinimumAge, "minimum_age");
@@ -216,19 +238,19 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
 
         // licenses (deprecated)
         Record(report, "service.licenses", "—",
-            string.IsNullOrEmpty(service.Licenses) ? VodimClassification.Missing : VodimClassification.Other,
+            string.IsNullOrEmpty(service.Licenses) ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.Licenses, null,
             "Deprecated HSDS field. No Schema.org mapping.");
 
         // alert → no Schema.org equivalent
         Record(report, "service.alert", "—",
-            string.IsNullOrEmpty(service.Alert) ? VodimClassification.Missing : VodimClassification.Other,
+            string.IsNullOrEmpty(service.Alert) ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.Alert, null, "No Schema.org mapping defined for alert.");
 
         // last_modified → no Schema.org equivalent in GovernmentService
         Record(report, "service.last_modified", "—",
             string.IsNullOrEmpty(service.LastModified)
-                ? VodimClassification.Missing : VodimClassification.Other,
+                ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.LastModified, null, "No Schema.org mapping defined for last_modified.");
 
         // ── Build mapped navigation properties ──────────────────────────────────
@@ -262,11 +284,11 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         // languages → availableLanguage
         var languages = MapLanguages(service.Languages, "service.languages", report);
 
-        // cost_options → offers
-        var offers = MapCostOptions(service.CostOptions, service.FeesDescription, options, report);
+        // cost_options → offers (pass stripped feesDescription as fallback)
+        var offers = MapCostOptions(service.CostOptions, feesDescription, options, report);
 
         // eligibility → audience (prefer structured over eligibility_description)
-        var audience = MapAudience(service.Eligibility, service.EligibilityDescription,
+        var audience = MapAudience(service.Eligibility, eligibilityDescription,
             service.MinimumAge, service.MaximumAge, report);
 
         // service_areas → areaServed
@@ -275,12 +297,12 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         // attributes / taxonomy terms → additionalType + keywords
         var (additionalTypes, keywords) = MapAttributes(service.Attributes, "service", report);
 
-        // accreditations → hasCredential (free-text)
-        var credentials = string.IsNullOrWhiteSpace(service.Accreditations)
+        // accreditations → hasCredential (free-text, HTML-stripped)
+        var credentials = string.IsNullOrWhiteSpace(accreditations)
             ? null
             : new List<SchemaOrgEducationalOccupationalCredential>
             {
-                new() { Name = service.Accreditations }
+                new() { Name = accreditations }
             };
 
         // additionalProperty — unmappable-but-preserve fields
@@ -291,9 +313,8 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             Id = serviceUri,
             Name = name,
             AlternateName = service.AlternateName,
-            Description = service.Description,
+            Description = description,
             Url = urlClass == VodimClassification.Valid ? service.Url : null,
-            Email = emailClass == VodimClassification.Valid ? service.Email : null,
             Provider = providerRef is not null
                 ? new Dictionary<string, string> { ["@id"] = providerRef }
                 : null,
@@ -307,7 +328,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             AdditionalType = additionalTypes.Count > 0 ? additionalTypes : null,
             Keywords = keywords.Count > 0 ? string.Join(", ", keywords) : null,
             HasCredential = credentials,
-            TermsOfService = service.ApplicationProcess,
+            TermsOfService = applicationProcess,
             AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
         };
     }
@@ -332,9 +353,11 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         Record(report, "organization.alternate_name", "Organization.alternateName",
             Classify(org.AlternateName), org.AlternateName, org.AlternateName);
 
-        // description
+        // description — HTML stripped
+        var orgDescription = StripHtml(org.Description);
         Record(report, "organization.description", "Organization.description",
-            Classify(org.Description), Truncate(org.Description), Truncate(org.Description));
+            Classify(org.Description), Truncate(org.Description), Truncate(orgDescription),
+            HtmlNote(org.Description));
 
         // email
         var (emailClass, emailNote) = ClassifyEmail(org.Email);
@@ -402,7 +425,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             Id = orgUri,
             Name = string.IsNullOrWhiteSpace(org.Name) ? null : org.Name,
             AlternateName = org.AlternateName,
-            Description = org.Description,
+            Description = orgDescription,
             Email = emailClass == VodimClassification.Valid ? org.Email : null,
             Url = urlClass == VodimClassification.Valid ? effectiveUrl : null,
             SameAs = uriClass == VodimClassification.Valid ? org.Uri : null,
@@ -432,9 +455,11 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         Record(report, "location.alternate_name", "Place.alternateName",
             Classify(location.AlternateName), location.AlternateName, location.AlternateName);
 
+        // description — HTML stripped
+        var locDescription = StripHtml(location.Description);
         Record(report, "location.description", "Place.description",
             Classify(location.Description), Truncate(location.Description),
-            Truncate(location.Description));
+            Truncate(locDescription), HtmlNote(location.Description));
 
         // url
         var (urlClass, urlNote) = ClassifyUrl(location.Url);
@@ -445,7 +470,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         // transportation — no Schema.org mapping
         Record(report, "location.transportation", "—",
             Classify(location.Transportation) == VodimClassification.Missing
-                ? VodimClassification.Missing : VodimClassification.Other,
+                ? VodimClassification.Missing : VodimClassification.Unmapped,
             location.Transportation, null, "No Schema.org mapping defined for transportation.");
 
         // latitude / longitude → GeoCoordinates
@@ -511,7 +536,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             Id = locUri,
             Name = location.Name,
             AlternateName = location.AlternateName,
-            Description = location.Description,
+            Description = locDescription,
             Url = urlClass == VodimClassification.Valid ? location.Url : null,
             Address = postalAddress,
             Geo = geoClass == VodimClassification.Valid ? geo : null,
@@ -607,10 +632,12 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                 vtClass, schedule.ValidTo,
                 vtClass == VodimClassification.Valid ? schedule.ValidTo : null, vtNote);
 
-            // description
+            // description — HTML stripped
+            var schedDescription = StripHtml(schedule.Description);
             Record(report, $"{prefix}.description", "OpeningHoursSpecification.description",
                 Classify(schedule.Description),
-                Truncate(schedule.Description), Truncate(schedule.Description));
+                Truncate(schedule.Description), Truncate(schedDescription),
+                HtmlNote(schedule.Description));
 
             // iCalendar fields that have no Schema.org equivalent
             RecordICalFields(schedule, prefix, report);
@@ -629,7 +656,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                         Closes = closesClass == VodimClassification.Valid ? schedule.ClosesAt : null,
                         ValidFrom = vfClass == VodimClassification.Valid ? schedule.ValidFrom : null,
                         ValidThrough = vtClass == VodimClassification.Valid ? schedule.ValidTo : null,
-                        Description = schedule.Description,
+                        Description = schedDescription,
                     });
                 }
             }
@@ -645,7 +672,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                         Closes = closesClass == VodimClassification.Valid ? schedule.ClosesAt : null,
                         ValidFrom = vfClass == VodimClassification.Valid ? schedule.ValidFrom : null,
                         ValidThrough = vtClass == VodimClassification.Valid ? schedule.ValidTo : null,
-                        Description = schedule.Description,
+                        Description = schedDescription,
                     });
                 }
             }
@@ -729,7 +756,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
     {
         if (string.IsNullOrWhiteSpace(value)) return;
         Record(report, sourcePath, "—",
-            VodimClassification.Other, value, null,
+            VodimClassification.Unmapped, value, null,
             note ?? "iCalendar recurrence field — no Schema.org OpeningHoursSpecification equivalent.");
     }
 
@@ -815,14 +842,18 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             return null;
         }
 
-        // name → contactType (role/purpose label)
-        var contactType = contact.Name ?? contact.Department;
+        // name → contactType (role/purpose label) — HTML stripped
+        var rawContactType = contact.Name ?? contact.Department;
+        var contactType = StripHtml(rawContactType);
         Record(report, $"{sourcePrefix}[{contact.Id}].name", "ContactPoint.contactType",
-            Classify(contactType), contactType, contactType);
+            Classify(rawContactType), rawContactType, contactType,
+            HtmlNote(rawContactType));
 
-        // title → name (person title)
+        // title → name (person title) — HTML stripped
+        var contactTitle = StripHtml(contact.Title);
         Record(report, $"{sourcePrefix}[{contact.Id}].title", "ContactPoint.name",
-            Classify(contact.Title), contact.Title, contact.Title);
+            Classify(contact.Title), contact.Title, contactTitle,
+            HtmlNote(contact.Title));
 
         // email
         var (emailClass, emailNote) = ClassifyEmail(contact.Email);
@@ -849,7 +880,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         return new SchemaOrgContactPoint
         {
             ContactType = contactType,
-            Name = contact.Title,
+            Name = contactTitle,
             Email = emailClass == VodimClassification.Valid ? contact.Email : null,
             Url = urlClass == VodimClassification.Valid ? contact.Url : null,
             Telephone = firstPhone?.Number,
@@ -963,15 +994,25 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                         cc, co.Currency, co.Currency);
             }
 
-            // amount_description → description
+            // amount_description → description — HTML stripped
+            var amountDescription = StripHtml(co.AmountDescription);
             Record(report, $"{prefix}.amount_description", "Offer.description",
-                Classify(co.AmountDescription), co.AmountDescription, co.AmountDescription);
+                Classify(co.AmountDescription), co.AmountDescription, amountDescription,
+                HtmlNote(co.AmountDescription));
 
-            // option (free-text label)
+            // option (free-text label) — HTML stripped
+            var optionLabel = StripHtml(co.Option);
+            var optionNote = co.Option is not null
+                && !string.Equals(co.Option, "free", StringComparison.OrdinalIgnoreCase)
+                    ? string.Join(" ", new[]
+                      {
+                          "Free-text cost option label; not a controlled vocabulary.",
+                          HtmlNote(co.Option)
+                      }.Where(n => n is not null))
+                    : null;
             Record(report, $"{prefix}.option", "Offer.description",
-                Classify(co.Option), co.Option, co.Option,
-                co.Option is not null && !string.Equals(co.Option, "free", StringComparison.OrdinalIgnoreCase)
-                    ? "Free-text cost option label; not a controlled vocabulary." : null);
+                Classify(co.Option), co.Option, optionLabel,
+                string.IsNullOrWhiteSpace(optionNote) ? null : optionNote);
 
             // valid_to → priceValidUntil
             var (vtClass, vtNote) = ClassifyDate(co.ValidTo);
@@ -982,7 +1023,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             // valid_from — no direct Schema.org Offer mapping
             Record(report, $"{prefix}.valid_from", "—",
                 Classify(co.ValidFrom) == VodimClassification.Missing
-                    ? VodimClassification.Missing : VodimClassification.Other,
+                    ? VodimClassification.Missing : VodimClassification.Unmapped,
                 co.ValidFrom, null, "valid_from has no Schema.org Offer equivalent.");
 
             if (priceClass != VodimClassification.Invalid)
@@ -991,7 +1032,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                 {
                     Price = price,
                     PriceCurrency = currency,
-                    Description = co.AmountDescription ?? co.Option,
+                    Description = amountDescription ?? optionLabel,
                     PriceValidUntil = vtClass == VodimClassification.Valid ? co.ValidTo : null,
                 });
             }
@@ -1009,6 +1050,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
         double? serviceMaxAge,
         TransformationReport report)
     {
+        // eligibilityDescription is already HTML-stripped by the caller (MapService)
         var hasDescription = !string.IsNullOrWhiteSpace(eligibilityDescription);
         var (minClass, _, minVal) = ClassifyAge(serviceMinAge, "minimum_age");
         var (maxClass, _, maxVal) = ClassifyAge(serviceMaxAge, "maximum_age");
@@ -1021,9 +1063,12 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             var (eMinClass, _, eMinVal) = ClassifyAge(first.MinimumAge, "eligibility.minimum_age");
             var (eMaxClass, _, eMaxVal) = ClassifyAge(first.MaximumAge, "eligibility.maximum_age");
 
+            // eligibility description — HTML stripped
+            var eligDesc = StripHtml(first.Description);
             Record(report, "service.eligibility[0].description",
                 "GovernmentService.audience.description",
-                Classify(first.Description), first.Description, first.Description);
+                Classify(first.Description), first.Description, eligDesc,
+                HtmlNote(first.Description));
             Record(report, "service.eligibility[0].minimum_age",
                 "GovernmentService.audience.suggestedMinAge",
                 eMinClass, first.MinimumAge?.ToString(), eMinVal?.ToString());
@@ -1035,7 +1080,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             {
                 return new SchemaOrgPeopleAudience
                 {
-                    Description = first.Description ?? eligibilityDescription,
+                    Description = eligDesc ?? eligibilityDescription,
                     SuggestedMinAge = eMinVal,
                     SuggestedMaxAge = eMaxVal,
                 };
@@ -1043,7 +1088,7 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
 
             return new SchemaOrgAudience
             {
-                Description = first.Description ?? eligibilityDescription,
+                Description = eligDesc ?? eligibilityDescription,
             };
         }
 
@@ -1245,15 +1290,18 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
             var item = items.ElementAt(i);
             var prefix = $"location.accessibility[{i}]";
 
+            // description — HTML stripped
+            var accessDesc = StripHtml(item.Description);
             Record(report, $"{prefix}.description",
                 "Place.amenityFeature.name",
-                Classify(item.Description), item.Description, item.Description);
+                Classify(item.Description), item.Description, accessDesc,
+                HtmlNote(item.Description));
 
             if (!string.IsNullOrWhiteSpace(item.Description))
             {
                 result.Add(new SchemaOrgLocationFeatureSpecification
                 {
-                    Name = item.Description,
+                    Name = accessDesc ?? item.Description,
                     Value = (object?)item.Details ?? true,
                 });
             }
@@ -1336,6 +1384,40 @@ public sealed class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransformer
                 Longitude = (decimal)longitude.Value,
             });
     }
+
+    // ── HTML stripping ────────────────────────────────────────────────────────────
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"<[^>]+>",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex HtmlTagPattern();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s{2,}")]
+    private static partial System.Text.RegularExpressions.Regex MultipleWhitespacePattern();
+
+    /// <summary>
+    /// Removes HTML tags and decodes HTML entities from a free-text value,
+    /// then normalises internal whitespace.  Returns the original value unchanged
+    /// when no HTML is present; returns <c>null</c> when the stripped result is empty.
+    /// </summary>
+    private static string? StripHtml(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+        if (!HtmlTagPattern().IsMatch(value)) return value;
+
+        var tagsRemoved = HtmlTagPattern().Replace(value, " ");
+        var decoded = System.Net.WebUtility.HtmlDecode(tagsRemoved);
+        var normalized = MultipleWhitespacePattern().Replace(decoded, " ").Trim();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    /// <summary>
+    /// Returns <c>"HTML markup stripped; plain text emitted."</c> when the value
+    /// contained HTML tags, otherwise <c>null</c>.  Used to populate VODIM notes.
+    /// </summary>
+    private static string? HtmlNote(string? value) =>
+        value is not null && HtmlTagPattern().IsMatch(value)
+            ? "HTML markup stripped; plain text emitted."
+            : null;
 
     // ── Field-level validators ────────────────────────────────────────────────────
 

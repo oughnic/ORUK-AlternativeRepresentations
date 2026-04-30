@@ -20,11 +20,6 @@ public record SchemaOrgService : SchemaOrgThing
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AlternateName { get; init; }
 
-    /// <summary>Email address for the service.</summary>
-    [JsonPropertyName("email")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Email { get; init; }
-
     /// <summary>
     /// The organisation or person providing the service.
     /// Typically an <c>@id</c> reference to an <see cref="SchemaOrgOrganization"/> node

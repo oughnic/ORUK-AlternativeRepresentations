@@ -55,6 +55,16 @@ namespace OrukTransformer.Core.Vodim;
 ///       applied.  The corresponding target property was omitted from the output.
 ///     </description>
 ///   </item>
+///   <item>
+///     <term>U — Unmapped</term>
+///     <description>
+///       The source field has <em>no Schema.org mapping</em>
+///       (target path shown as <c>—</c>).  The value is present but is
+///       intentionally omitted from the output because no suitable Schema.org
+///       property exists.  This is a known lossy transformation; see
+///       <em>README.md § Unmapped ORUK Fields</em> for the full list.
+///     </description>
+///   </item>
 /// </list>
 /// </summary>
 public enum VodimClassification
@@ -72,5 +82,11 @@ public enum VodimClassification
     Invalid,
 
     /// <summary>Value absent in source; no default applied; target property was omitted.</summary>
-    Missing
+    Missing,
+
+    /// <summary>
+    /// Value present in source but no Schema.org mapping exists; field is intentionally
+    /// omitted from output (lossy transformation).  Target path is shown as <c>—</c>.
+    /// </summary>
+    Unmapped
 }

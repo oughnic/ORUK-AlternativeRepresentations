@@ -22,7 +22,7 @@ The ORUK `Service` entity maps to `schema:GovernmentService` (or `schema:Service
 | `alternate_name` | `alternateName` | Direct mapping. |
 | `description` | `description` | Direct mapping. |
 | `url` | `url` | Direct mapping. |
-| `email` | `email` | Direct mapping (also see ContactPoint). |
+| `email` | — | **Unmapped.** `schema:GovernmentService` has no suitable property for a service-level contact email. Field is intentionally omitted from output (lossy). See [README – Unmapped ORUK fields](../../README.md#unmapped-oruk-fields). |
 | `status` | `schema:serviceType` note | `active` → no special annotation; `inactive` → `schema:discontinued` pattern (no standard property; use `additionalProperty`). |
 | `interpretation_services` | `availableLanguage` | Map to `Language` type if structured. |
 | `application_process` | `termsOfService` | Free-text description of how to access the service. |
