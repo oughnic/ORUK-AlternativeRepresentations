@@ -16,6 +16,7 @@ oruk-transformer --oruk-url <url> [--json-ld <file>] [--max-records <n>] [--verb
 | `--json-ld` | file path | No | stdout | Output file for the JSON-LD; omit to write to stdout |
 | `--max-records` | int | No | `50` | Max services to retrieve; values < 1 = no limit |
 | `--verbose` | flag | No | `false` | Emit per-service VODIM field-level detail |
+| `--data-quality-report` | file path | No | — | Write an xHTML5 data-quality HTML report to this file |
 
 ### Examples
 
@@ -40,6 +41,12 @@ oruk-transformer \
   --oruk-url https://bristol.openplace.directory/o/OpenReferralService/v3/services \
   --json-ld all.jsonld \
   --max-records 0
+
+# Generate an HTML data-quality report alongside the JSON-LD
+oruk-transformer \
+  --oruk-url https://bristol.openplace.directory/o/OpenReferralService/v3/services \
+  --json-ld output.jsonld \
+  --data-quality-report oruk-schema_org.html
 ```
 
 ## Output
@@ -72,6 +79,14 @@ VODIM Summary — 42 service(s) transformed from https://example.org/services
 [I] service.schedules[0].opens_at → OpeningHoursSpecification.opens (source: "9am") — not ISO HH:mm
 ```
 
+### HTML Data-Quality Report (`--data-quality-report`)
+
+When `--data-quality-report <file>` is supplied, an xHTML5 data-quality report is written to the specified file in addition to the standard console VODIM output.
+
+The report lists every distinct ORUK field path found across all services as an `<h2>` heading.  Under each heading, a VODIM metric breakdown table and a de-duplicated list of issue messages (with occurrence counts) are shown.  Instance-specific details such as individual field values are deliberately omitted to avoid data leakage.
+
+The report uses embedded iStandUK-branded CSS and requires no external resources.
+
 ## Architecture
 
 | Component | Responsibility |
@@ -83,6 +98,7 @@ VODIM Summary — 42 service(s) transformed from https://example.org/services
 | `JsonLdMerger` | Merges per-service documents; deduplicates nodes by `@id` |
 | `JsonLdWriter` | Serialises `SchemaOrgDocument` to file or stdout |
 | `VodimReporter` | Formats VODIM summary and optional per-service detail |
+| `HtmlDataQualityReportWriter` | Writes the xHTML5 data-quality HTML report |
 
 ## Paging
 
