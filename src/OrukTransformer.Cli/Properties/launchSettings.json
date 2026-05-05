@@ -2,7 +2,7 @@
   "profiles": {
     "OrukTransformer.Cli": {
       "commandName": "Project",
-      "commandLineArgs": " --oruk-url https://api.familyinfo.buckinghamshire.gov.uk/api/v1/services --json-ld output-bucks.jsonld --data-quality-report oruk-DQ-bucks.html --max-records 0",
+      "commandLineArgs": " --oruk-url https://bristol.openplace.directory/o/OpenReferralService/v3/services --json-ld output-bristol.jsonld --data-quality-report oruk-DQ-bristol.html --max-records 0",
       "workingDirectory": "C:\\FooWP"
     }
   }

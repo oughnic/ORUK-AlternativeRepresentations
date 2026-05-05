@@ -75,23 +75,29 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
 
         sb.AppendLine("    <section class=\"summary\">");
         sb.AppendLine("      <h2>Overall VODIM Summary</h2>");
-        sb.AppendLine("      <table class=\"vodim-table summary-table\">");
-        sb.AppendLine("        <thead><tr>");
-        sb.AppendLine("          <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
-        sb.AppendLine("        </tr></thead>");
-        sb.AppendLine("        <tbody>");
-        AppendVodimRow(sb, "V", "Valid", totalV, totalAll, "valid");
-        AppendVodimRow(sb, "O", "Other", totalO, totalAll, "other");
-        AppendVodimRow(sb, "D", "Default", totalD, totalAll, "default");
-        AppendVodimRow(sb, "I", "Invalid", totalI, totalAll, "invalid");
-        AppendVodimRow(sb, "M", "Missing", totalM, totalAll, "missing");
-        AppendVodimRow(sb, "U", "Unmapped", totalU, totalAll, "unmapped");
-        sb.AppendLine("        </tbody>");
-        sb.AppendLine("        <tfoot><tr>");
-        sb.AppendLine($"          <td colspan=\"2\"><strong>Total fields</strong></td>");
-        sb.AppendLine($"          <td><strong>{totalAll}</strong></td><td></td>");
-        sb.AppendLine("        </tr></tfoot>");
-        sb.AppendLine("      </table>");
+        sb.AppendLine("      <div class=\"summary-container\">");
+        sb.AppendLine("        <table class=\"vodim-table summary-table\">");
+        sb.AppendLine("          <thead><tr>");
+        sb.AppendLine("            <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
+        sb.AppendLine("          </tr></thead>");
+        sb.AppendLine("          <tbody>");
+        AppendVodimRow(sb, "V", "Valid", totalV, totalAll, "valid", indent: 12);
+        AppendVodimRow(sb, "O", "Other", totalO, totalAll, "other", indent: 12);
+        AppendVodimRow(sb, "D", "Default", totalD, totalAll, "default", indent: 12);
+        AppendVodimRow(sb, "I", "Invalid", totalI, totalAll, "invalid", indent: 12);
+        AppendVodimRow(sb, "M", "Missing", totalM, totalAll, "missing", indent: 12);
+        AppendVodimRow(sb, "U", "Unmapped", totalU, totalAll, "unmapped", indent: 12);
+        sb.AppendLine("          </tbody>");
+        sb.AppendLine("          <tfoot><tr>");
+        sb.AppendLine($"            <td colspan=\"2\"><strong>Total fields</strong></td>");
+        sb.AppendLine($"            <td><strong>{totalAll}</strong></td><td></td>");
+        sb.AppendLine("          </tr></tfoot>");
+        sb.AppendLine("        </table>");
+
+        // Add pie chart
+        AppendPieChart(sb, totalV, totalO, totalD, totalI, totalM, totalU, totalAll);
+
+        sb.AppendLine("      </div>");
         sb.AppendLine("    </section>");
 
         // ── Per-field sections ────────────────────────────────────────────────────
@@ -131,19 +137,25 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
                 sb.AppendLine($"        <h2 class=\"field-heading\">{Encode(group.Key)}</h2>");
                 sb.AppendLine($"        <p class=\"target-path\">→ <code>{Encode(targetPath)}</code></p>");
 
-                sb.AppendLine("        <table class=\"vodim-table field-table\">");
-                sb.AppendLine("          <thead><tr>");
-                sb.AppendLine("            <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
-                sb.AppendLine("          </tr></thead>");
-                sb.AppendLine("          <tbody>");
-                AppendVodimRow(sb, "V", "Valid", fV, fTotal, "valid", indent: 12);
-                AppendVodimRow(sb, "O", "Other", fO, fTotal, "other", indent: 12);
-                AppendVodimRow(sb, "D", "Default", fD, fTotal, "default", indent: 12);
-                AppendVodimRow(sb, "I", "Invalid", fI, fTotal, "invalid", indent: 12);
-                AppendVodimRow(sb, "M", "Missing", fM, fTotal, "missing", indent: 12);
-                AppendVodimRow(sb, "U", "Unmapped", fU, fTotal, "unmapped", indent: 12);
-                sb.AppendLine("          </tbody>");
-                sb.AppendLine("        </table>");
+                sb.AppendLine("        <div class=\"field-container\">");
+                sb.AppendLine("          <table class=\"vodim-table field-table\">");
+                sb.AppendLine("            <thead><tr>");
+                sb.AppendLine("              <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
+                sb.AppendLine("            </tr></thead>");
+                sb.AppendLine("            <tbody>");
+                AppendVodimRow(sb, "V", "Valid", fV, fTotal, "valid", indent: 14);
+                AppendVodimRow(sb, "O", "Other", fO, fTotal, "other", indent: 14);
+                AppendVodimRow(sb, "D", "Default", fD, fTotal, "default", indent: 14);
+                AppendVodimRow(sb, "I", "Invalid", fI, fTotal, "invalid", indent: 14);
+                AppendVodimRow(sb, "M", "Missing", fM, fTotal, "missing", indent: 14);
+                AppendVodimRow(sb, "U", "Unmapped", fU, fTotal, "unmapped", indent: 14);
+                sb.AppendLine("            </tbody>");
+                sb.AppendLine("          </table>");
+
+                // Add field-level pie chart
+                AppendPieChart(sb, fV, fO, fD, fI, fM, fU, fTotal, indent: 10);
+
+                sb.AppendLine("        </div>");
 
                 // Aggregate notes (without instance-specific source values)
                 var notes = records
@@ -221,6 +233,157 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
     };
 
     private static string Encode(string s) => WebUtility.HtmlEncode(s);
+
+    private static void AppendPieChart(
+        StringBuilder sb,
+        int totalV, int totalO, int totalD, int totalI, int totalM, int totalU,
+        int totalAll, int indent = 8)
+    {
+        if (totalAll == 0)
+        {
+            // No data to chart
+            return;
+        }
+
+        // Minimum percentage threshold for rendering labels on the chart
+        // Segments below this threshold will be shown in a legend instead
+        const double MinimumLabelThreshold = 0.03; // 3%
+
+        // Build list of non-zero segments with foreground and background colors
+        var segments = new List<(string Label, int Count, string FgColor, string BgColor)>();
+        if (totalV > 0) segments.Add(("Valid", totalV, "#1a7a3c", "#e8f5ec"));
+        if (totalO > 0) segments.Add(("Other", totalO, "#7a5c00", "#fef9e6"));
+        if (totalD > 0) segments.Add(("Default", totalD, "#1a5c7a", "#e6f2fa"));
+        if (totalI > 0) segments.Add(("Invalid", totalI, "#9a1a1a", "#fce8e8"));
+        if (totalM > 0) segments.Add(("Missing", totalM, "#4a4a4a", "#f0f0f0"));
+        if (totalU > 0) segments.Add(("Unmapped", totalU, "#5a3a7a", "#f0ebfa"));
+
+        if (segments.Count == 0)
+        {
+            // No non-zero segments
+            return;
+        }
+
+        var pad = new string(' ', indent);
+        var pad2 = new string(' ', indent + 2);
+        var pad4 = new string(' ', indent + 4);
+        var pad6 = new string(' ', indent + 6);
+
+        // Track small segments for legend
+        var smallSegments = new List<(string Label, int Count, double Percentage, string FgColor)>();
+
+        sb.AppendLine($"{pad}<div class=\"pie-chart\">");
+        sb.AppendLine($"{pad2}<svg viewBox=\"-60 0 360 200\" xmlns=\"http://www.w3.org/2000/svg\">");
+
+        // Draw pie segments
+        double currentAngle = 0;
+        const double radius = 80;
+        const double centerX = 120; // Center of viewport: -60 + 360/2 = 120
+        const double centerY = 100;
+        const double labelRadius = 95; // Position labels outside the circle
+
+        foreach (var (label, count, fgColor, bgColor) in segments)
+        {
+            var percentage = (double)count / totalAll;
+            var angleSize = percentage * 360;
+            var endAngle = currentAngle + angleSize;
+
+            string path;
+
+            // Special case: if this is the only segment (100%), draw a full circle
+            if (segments.Count == 1)
+            {
+                // Draw a full circle using two semicircular arcs
+                var topX = centerX;
+                var topY = centerY - radius;
+                var bottomX = centerX;
+                var bottomY = centerY + radius;
+
+                path = $"M {topX},{topY} " +
+                      $"A {radius},{radius} 0 0,1 {bottomX},{bottomY} " +
+                      $"A {radius},{radius} 0 0,1 {topX},{topY} Z";
+            }
+            else
+            {
+                // Calculate start and end points for segment
+                var startX = centerX + radius * Math.Cos(currentAngle * Math.PI / 180);
+                var startY = centerY + radius * Math.Sin(currentAngle * Math.PI / 180);
+                var endX = centerX + radius * Math.Cos(endAngle * Math.PI / 180);
+                var endY = centerY + radius * Math.Sin(endAngle * Math.PI / 180);
+
+                // Use large arc flag if angle > 180°
+                var largeArcFlag = angleSize > 180 ? 1 : 0;
+
+                // Build SVG path with background fill and foreground stroke
+                path = $"M {centerX},{centerY} " +
+                      $"L {startX:F2},{startY:F2} " +
+                      $"A {radius},{radius} 0 {largeArcFlag},1 {endX:F2},{endY:F2} Z";
+            }
+
+            sb.AppendLine($"{pad4}<path d=\"{path}\" fill=\"{bgColor}\" stroke=\"{fgColor}\" stroke-width=\"2\">");
+            sb.AppendLine($"{pad6}<title>{Encode(label)}: {count} ({percentage:P0})</title>");
+            sb.AppendLine($"{pad4}</path>");
+
+            // Only render positioned labels for segments >= threshold
+            if (percentage >= MinimumLabelThreshold)
+            {
+                // Calculate midpoint angle for label placement
+                var midAngle = currentAngle + (angleSize / 2);
+                var labelX = centerX + labelRadius * Math.Cos(midAngle * Math.PI / 180);
+                var labelY = centerY + labelRadius * Math.Sin(midAngle * Math.PI / 180);
+
+                // Determine text anchor based on which side of the chart the label is on
+                // Right side (between -90° and +90°, normalized): use left justification (start)
+                // Left side: use right justification (end)
+                var normalizedAngle = midAngle % 360;
+                var isRightSide = normalizedAngle < 90 || normalizedAngle > 270;
+                var textAnchor = isRightSide ? "start" : "end";
+
+                // Format label text with VODIM classification
+                // Right side: "33% :Label" (percentage left, label right)
+                // Left side: "Label: 33%" (label left, percentage right)
+                var labelText = isRightSide 
+                    ? $"{percentage:P0} :{label}" 
+                    : $"{label}: {percentage:P0}";
+
+                // Add percentage label with VODIM classification
+                sb.AppendLine($"{pad4}<text x=\"{labelX:F2}\" y=\"{labelY:F2}\" " +
+                             $"text-anchor=\"{textAnchor}\" " +
+                             $"dominant-baseline=\"middle\" " +
+                             $"font-size=\"11\" " +
+                             $"font-weight=\"600\" " +
+                             $"fill=\"{fgColor}\">" +
+                             $"{Encode(labelText)}</text>");
+            }
+            else
+            {
+                // Track small segments for legend
+                smallSegments.Add((label, count, percentage, fgColor));
+            }
+
+            currentAngle = endAngle;
+        }
+
+        sb.AppendLine($"{pad2}</svg>");
+
+        // Append legend for small segments if any exist
+        if (smallSegments.Count > 0)
+        {
+            sb.AppendLine($"{pad2}<div class=\"chart-legend\">");
+            sb.Append($"{pad4}<span class=\"legend-label\">Small segments:</span> ");
+
+            var legendItems = smallSegments.Select(s => 
+                $"<span class=\"legend-item\" style=\"color: {s.FgColor};\">" +
+                $"{Encode(s.Label)} {s.Count} ({s.Percentage:P1})" +
+                $"</span>");
+
+            sb.Append(string.Join(", ", legendItems));
+            sb.AppendLine();
+            sb.AppendLine($"{pad2}</div>");
+        }
+
+        sb.AppendLine($"{pad}</div>");
+    }
 
     // ── Embedded CSS (iStandUK branding) ─────────────────────────────────────────
 
@@ -403,7 +566,51 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
         /* ── Summary section ──────────────────────────────────────── */
         .summary { margin-bottom: 2.5rem; }
 
-        .summary-table { max-width: 500px; }
+        .summary-container {
+          display: flex;
+          gap: 2rem;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .summary-table { max-width: 500px; flex-shrink: 0; }
+
+        .pie-chart {
+          flex-shrink: 0;
+          width: 360px;
+          max-width: 360px;
+        }
+
+        .pie-chart svg {
+          width: 100%;
+          height: auto;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+        }
+
+        .pie-chart text {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          user-select: none;
+        }
+
+        /* Chart legend for small segments */
+        .chart-legend {
+          margin-top: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          background: var(--istanduk-off-white);
+          border: 1px solid var(--istanduk-border);
+          border-radius: 4px;
+          font-size: 0.85rem;
+          line-height: 1.5;
+        }
+
+        .chart-legend .legend-label {
+          font-weight: 600;
+          color: var(--istanduk-text);
+        }
+
+        .chart-legend .legend-item {
+          font-weight: 600;
+        }
 
         /* ── Field sections ───────────────────────────────────────── */
         .field {
@@ -416,7 +623,14 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
 
         .field h2.field-heading { margin-top: 0; }
 
-        .field-table { max-width: 500px; }
+        .field-container {
+          display: flex;
+          gap: 2rem;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .field-table { max-width: 500px; flex-shrink: 0; }
 
         .target-path {
           font-size: 0.88rem;
