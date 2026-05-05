@@ -81,7 +81,7 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     // ── Logging ───────────────────────────────────────────────────────────────
 
     using var loggerFactory = LoggerFactory.Create(builder =>
-        builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        builder.AddConsole().SetMinimumLevel(LogLevel.Information));
 
     // ── Services ──────────────────────────────────────────────────────────────
 
