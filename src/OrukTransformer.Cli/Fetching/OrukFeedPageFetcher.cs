@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using OrukModels.Models;
-using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -8,16 +7,31 @@ namespace OrukTransformer.Cli.Fetching;
 
 /// <summary>
 /// Fetches ORUK service records by iterating the paged <c>GET /services</c>
-/// endpoint, using query parameters <c>page</c> and <c>per_page</c> to
-/// minimise the number of HTTP round-trips while respecting endpoint load.
+/// endpoint.
 /// </summary>
 /// <remarks>
-/// Page size is capped at 100 records per request, or at
-/// <paramref name="maxRecords"/> when a smaller positive limit is requested.
+/// <para>
+/// Two paging strategies are supported and detected automatically from the
+/// first page response:
+/// </para>
+/// <list type="bullet">
+/// <item><description>
+///   <strong>RDPE (Realtime Paged Data Exchange)</strong> – when the first
+///   response contains a non-empty <c>next_url</c> or <c>nextUrl</c> field,
+///   subsequent pages are retrieved by following those URLs directly.
+///   Pagination ends when the next-page URL is absent or empty.
+/// </description></item>
+/// <item><description>
+///   <strong>Standard ORUK page-number paging</strong> – when no next-page
+///   URL is present, query parameters <c>page</c> and <c>per_page</c> are
+///   used to iterate pages.  Page size is capped at 100 records per request.
+/// </description></item>
+/// </list>
+/// <para>
 /// If an individual page fails to deserialise, a warning is logged and that
-/// page is skipped; the fetch continues with the next page ("receive liberally").
-/// If the <em>first</em> page returns a non-success HTTP status code the fetch
-/// is aborted immediately.
+/// page is skipped ("receive liberally").  If the <em>first</em> page returns
+/// a non-success HTTP status code the fetch is aborted immediately.
+/// </para>
 /// </remarks>
 public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
 {
@@ -42,16 +56,30 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
         var remaining = noLimit ? int.MaxValue : maxRecords;
         var pageSize = noLimit ? MaxPageSize : Math.Min(maxRecords, MaxPageSize);
 
+        // State for standard page-number paging
         int totalPages = 1;
         int currentPage = 1;
+
+        // State for RDPE paging (set after first page is received)
+        bool useRdpe = false;
+        Uri? rdpeNextUrl = null;
+
         bool firstPage = true;
 
-        while (currentPage <= totalPages && remaining > 0)
+        while (remaining > 0 && (useRdpe ? rdpeNextUrl is not null : currentPage <= totalPages))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var requestSize = Math.Min(pageSize, remaining);
-            var url = BuildPageUrl(endpointUrl, currentPage, requestSize);
+            Uri url;
+            if (useRdpe && rdpeNextUrl is not null)
+            {
+                url = rdpeNextUrl;
+            }
+            else
+            {
+                var requestSize = Math.Min(pageSize, remaining);
+                url = BuildPageUrl(endpointUrl, currentPage, requestSize);
+            }
 
             OrukPage<OrukService>? page = null;
             try
@@ -98,6 +126,12 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                         yield break;
                     }
 
+                    if (useRdpe)
+                    {
+                        _logger.LogWarning("RDPE error fetching next page at {Url}. Stopping pagination.", url);
+                        yield break;
+                    }
+
                     _logger.LogWarning("Skipping page {Page} and continuing with next page.", currentPage);
                     currentPage++;
                     continue;
@@ -108,13 +142,12 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
 
                 try
                 {
-                    page = await response.Content.ReadFromJsonAsync<OrukPage<OrukService>>(
-                        cancellationToken: cancellationToken);
+                    page = JsonSerializer.Deserialize<OrukPage<OrukService>>(responseBody);
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogError(ex, 
-                        "JSON deserialization failed for page {Page} from {Url}. Attempting fallback with case-insensitive options.", 
+                    _logger.LogError(ex,
+                        "JSON deserialization failed for page {Page} from {Url}. Attempting fallback with case-insensitive options.",
                         currentPage, url);
 
                     // Fallback: try case-insensitive deserialization
@@ -129,14 +162,14 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                         if (page is not null)
                         {
                             _logger.LogInformation(
-                                "Fallback deserialization succeeded for page {Page} from {Url}.", 
+                                "Fallback deserialization succeeded for page {Page} from {Url}.",
                                 currentPage, url);
                         }
                     }
                     catch (Exception fallbackEx)
                     {
-                        _logger.LogError(fallbackEx, 
-                            "Fallback deserialization also failed for page {Page} from {Url}. Response body length: {BodyLength}", 
+                        _logger.LogError(fallbackEx,
+                            "Fallback deserialization also failed for page {Page} from {Url}. Response body length: {BodyLength}",
                             currentPage, url, responseBody.Length);
                         throw;
                     }
@@ -152,6 +185,13 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                     yield break;
                 }
 
+                if (useRdpe)
+                {
+                    _logger.LogWarning(ex,
+                        "Error fetching or deserialising RDPE page from {Url}. Stopping pagination.", url);
+                    yield break;
+                }
+
                 _logger.LogWarning(ex,
                     "Error fetching or deserialising page {Page} from {Url}. Skipping page.",
                     currentPage, url);
@@ -164,24 +204,60 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                 _logger.LogWarning(
                     "Page {Page} returned no contents (page is null: {IsNull}, page size requested: {RequestSize}). " +
                     "Stopping pagination. Total services yielded so far: {TotalYielded}.",
-                    currentPage, page is null, requestSize, 
+                    currentPage, page is null, useRdpe ? 0 : Math.Min(pageSize, remaining),
                     noLimit ? int.MaxValue - remaining : maxRecords - remaining);
                 yield break;
             }
 
-            // Update total pages from the first response
+            // On the first page, detect which paging strategy the endpoint uses.
             if (firstPage)
             {
-                totalPages = Math.Max(page.TotalPages, 1);
                 firstPage = false;
-                _logger.LogInformation(
-                    "ORUK endpoint reports {TotalItems} total items across {TotalPages} pages (page size: {PageSize}).",
-                    page.TotalItems, page.TotalPages, pageSize);
+
+                if (!string.IsNullOrEmpty(page.NextUrl))
+                {
+                    useRdpe = true;
+                    _logger.LogInformation(
+                        "RDPE paging detected for {Url}. Following next_url links.",
+                        endpointUrl);
+                }
+                else
+                {
+                    totalPages = Math.Max(page.TotalPages, 1);
+                    _logger.LogInformation(
+                        "ORUK endpoint reports {TotalItems} total items across {TotalPages} pages (page size: {PageSize}).",
+                        page.TotalItems, page.TotalPages, pageSize);
+                }
             }
 
-            _logger.LogInformation(
-                "Successfully fetched page {CurrentPage}/{TotalPages} with {ItemCount} services from {Url}.",
-                currentPage, totalPages, page.Contents.Count, url);
+            if (useRdpe)
+            {
+                _logger.LogInformation(
+                    "Successfully fetched RDPE page with {ItemCount} services from {Url}.",
+                    page.Contents.Count, url);
+
+                // Advance to the next RDPE URL; null or same URL signals end of feed.
+                rdpeNextUrl = !string.IsNullOrEmpty(page.NextUrl)
+                    ? new Uri(page.NextUrl)
+                    : null;
+
+                if (rdpeNextUrl is not null && rdpeNextUrl == url)
+                {
+                    _logger.LogInformation(
+                        "RDPE feed returned the same next_url as the current URL ({Url}). " +
+                        "The feed is up to date. Stopping pagination.",
+                        url);
+                    rdpeNextUrl = null;
+                }
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Successfully fetched page {CurrentPage}/{TotalPages} with {ItemCount} services from {Url}.",
+                    currentPage, totalPages, page.Contents.Count, url);
+
+                currentPage++;
+            }
 
             foreach (var service in page.Contents)
             {
@@ -189,15 +265,13 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                 yield return service;
                 remaining--;
             }
-
-            currentPage++;
         }
 
         // Log completion summary
         var totalFetched = noLimit ? int.MaxValue - remaining : maxRecords - remaining;
         _logger.LogInformation(
             "Pagination completed. Fetched {TotalFetched} services across {PagesFetched} pages from {Url}.",
-            totalFetched, currentPage - 1, endpointUrl);
+            totalFetched, useRdpe ? totalFetched : currentPage - 1, endpointUrl);
     }
 
     private static Uri BuildPageUrl(Uri baseUrl, int page, int perPage)
