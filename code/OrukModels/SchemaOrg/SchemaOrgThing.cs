@@ -97,12 +97,4 @@ public abstract record SchemaOrgThing
     [JsonPropertyName("identifier")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SchemaOrgPropertyValue? Identifier { get; init; }
-
-    /// <summary>
-    /// The date and time when the item was most recently modified.
-    /// Maps from ORUK <c>service.last_modified</c> (ISO 8601 timestamp).
-    /// </summary>
-    [JsonPropertyName("dateModified")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? DateModified { get; init; }
 }
