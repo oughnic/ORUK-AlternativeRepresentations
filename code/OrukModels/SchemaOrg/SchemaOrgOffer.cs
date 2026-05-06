@@ -61,6 +61,14 @@ public record SchemaOrgOffer
     public string? PriceValidUntil { get; init; }
 
     /// <summary>
+    /// The date from which the price is valid.
+    /// Maps from ORUK <c>CostOption.valid_from</c> (ISO 8601 date).
+    /// </summary>
+    [JsonPropertyName("validFrom")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValidFrom { get; init; }
+
+    /// <summary>
     /// The availability of the offer.
     /// Use Schema.org ItemAvailability URI constants such as
     /// <c>"https://schema.org/InStock"</c> or <c>"https://schema.org/LimitedAvailability"</c>.

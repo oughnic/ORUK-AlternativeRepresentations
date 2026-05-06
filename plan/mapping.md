@@ -11,9 +11,9 @@ This document defines how data elements from Open Referral UK (ORUK) feeds are m
 
 ---
 
-## 1. Service → GovernmentService
+## 1. Service → GovernmentService / Service
 
-The ORUK `Service` entity maps to `schema:GovernmentService` (or `schema:Service` for non-government providers).
+The ORUK `Service` entity maps to `schema:GovernmentService` for government or public-sector services, or `schema:Service` for private/voluntary providers.
 
 | ORUK field | Schema.org property | Notes |
 |------------|---------------------|-------|
@@ -22,15 +22,18 @@ The ORUK `Service` entity maps to `schema:GovernmentService` (or `schema:Service
 | `alternate_name` | `alternateName` | Direct mapping. |
 | `description` | `description` | Direct mapping. |
 | `url` | `url` | Direct mapping. |
+| `last_modified` | `dateModified` | ISO 8601 timestamp of last update. |
 | `email` | — | **Unmapped.** `schema:GovernmentService` has no suitable property for a service-level contact email. Field is intentionally omitted from output (lossy). See [README – Unmapped ORUK fields](../../README.md#unmapped-oruk-fields). |
 | `status` | `schema:serviceType` note | `active` → no special annotation; `inactive` → `schema:discontinued` pattern (no standard property; use `additionalProperty`). |
-| `interpretation_services` | `availableLanguage` | Map to `Language` type if structured. |
+| `interpretation_services` | `availableLanguage` | Map to `Language` type if structured languages present; fall back to free-text name if no structured languages. |
 | `application_process` | `termsOfService` | Free-text description of how to access the service. |
 | `wait_time` | `additionalProperty` | Name: `waitTime`. |
 | `fees_description` | `offers.description` | See CostOption mapping below. |
 | `accreditations` | `hasCredential` | Map to `EducationalOccupationalCredential` where possible. |
 | `eligibility_description` | `audience.description` | See Eligibility mapping. |
 | (organisation reference) | `provider` | `@id` reference to `Organization` node. |
+| (organisation reference) | `serviceOperator` | **GovernmentService only.** `@id` reference to `Organization` node (same as provider). |
+| (service area) | `jurisdiction` | **GovernmentService only.** Derived from first `service_area.name` if present. |
 | (location reference) | `location` | `@id` reference to `Place` node. |
 | (schedule reference) | `openingHoursSpecification` | See Schedule mapping. |
 | (contact reference) | `contactPoint` | See Contact mapping. |
@@ -135,9 +138,11 @@ The ORUK `Service` entity maps to `schema:GovernmentService` (or `schema:Service
 | `option` / `amount` | `price` | Numeric value. |
 | `currency` | `priceCurrency` | ISO 4217 code (default `GBP`). |
 | `amount_description` | `description` | Free-text cost description. |
-| `valid_from` | `priceValidUntil` | Reuse if a `valid_to` is absent. |
-| `valid_to` | `priceValidUntil` | ISO 8601 date. |
+| `valid_from` | `validFrom` | ISO 8601 date. Valid start date for this offer. |
+| `valid_to` | `priceValidUntil` | ISO 8601 date. Valid end date for this offer. |
 | `option` = "free" | `price: 0` | Normalise free services to `price: 0`. |
+
+**Note:** Schema.org `Offer` type supports both `validFrom` (available since Schema.org v3.4) and `priceValidUntil` properties. These are distinct and should not be conflated.
 
 ---
 

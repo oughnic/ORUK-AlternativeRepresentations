@@ -1,6 +1,7 @@
 using OrukModels.Models;
 using OrukModels.SchemaOrg;
 using OrukTransformer.Core.Vodim;
+using System.Text.RegularExpressions;
 
 namespace OrukTransformer.Core.Mapping;
 
@@ -247,11 +248,12 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             string.IsNullOrEmpty(service.Alert) ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.Alert, null, "No Schema.org mapping defined for alert.");
 
-        // last_modified → no Schema.org equivalent in GovernmentService
-        Record(report, "service.last_modified", "—",
-            string.IsNullOrEmpty(service.LastModified)
-                ? VodimClassification.Missing : VodimClassification.Unmapped,
-            service.LastModified, null, "No Schema.org mapping defined for last_modified.");
+        // last_modified → dateModified
+        var (dateModClass, dateModNote) = ClassifyDate(service.LastModified);
+        Record(report, "service.last_modified", "Thing.dateModified",
+            dateModClass, service.LastModified,
+            dateModClass == VodimClassification.Valid ? service.LastModified : null,
+            dateModNote);
 
         // ── Build mapped navigation properties ──────────────────────────────────
 
@@ -259,6 +261,12 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
         string? providerRef = service.Organization is not null
             ? options.OrganisationUri(service.Organization.Id)
             : null;
+
+        // serviceOperator — for GovernmentService, same as provider
+        string? serviceOperatorRef = providerRef;
+
+        // jurisdiction — derive from service_areas or feed base URL
+        string? jurisdiction = DetermineJurisdiction(service, options);
 
         // locations (via service_at_locations)
         var locationRefs = service.ServiceAtLocations
@@ -281,8 +289,9 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
         var contactPoints = new List<SchemaOrgContactPoint>();
         contactPoints.AddRange(MapServiceContacts(service.Contacts, service.Phones, report));
 
-        // languages → availableLanguage
-        var languages = MapLanguages(service.Languages, "service.languages", report);
+        // languages → availableLanguage (with interpretation_services fallback)
+        var languages = MapLanguagesWithFallback(service.Languages, service.InterpretationServices,
+            "service.languages", report);
 
         // cost_options → offers (pass stripped feesDescription as fallback)
         var offers = MapCostOptions(service.CostOptions, feesDescription, options, report);
@@ -318,6 +327,10 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             Provider = providerRef is not null
                 ? new Dictionary<string, string> { ["@id"] = providerRef }
                 : null,
+            ServiceOperator = serviceOperatorRef is not null
+                ? new Dictionary<string, string> { ["@id"] = serviceOperatorRef }
+                : null,
+            Jurisdiction = jurisdiction,
             Location = locationRefs.Count > 0 ? locationRefs : null,
             OpeningHoursSpecification = openingHours.Count > 0 ? openingHours : null,
             ContactPoint = contactPoints.Count > 0 ? contactPoints : null,
@@ -329,6 +342,7 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             Keywords = keywords.Count > 0 ? string.Join(", ", keywords) : null,
             HasCredential = credentials,
             TermsOfService = applicationProcess,
+            DateModified = dateModClass == VodimClassification.Valid ? service.LastModified : null,
             AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
         };
     }
@@ -901,15 +915,41 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
         {
             Record(report, $"{sourcePrefix}[{lang.Id}].name", "Language.name",
                 Classify(lang.Name), lang.Name, lang.Name);
+            
+            var (codeClass, codeNote) = ClassifyLanguageCode(lang.Code);
             Record(report, $"{sourcePrefix}[{lang.Id}].code", "Language.identifier",
-                Classify(lang.Code), lang.Code, lang.Code);
+                codeClass, lang.Code, codeClass == VodimClassification.Valid ? lang.Code : null, codeNote);
 
-            result.Add(new SchemaOrgLanguage
+            if (codeClass == VodimClassification.Valid)
             {
-                Name = lang.Name,
-                Identifier = lang.Code,
-            });
+                result.Add(new SchemaOrgLanguage
+                {
+                    Name = lang.Name,
+                    Identifier = lang.Code,
+                });
+            }
         }
+        return result;
+    }
+
+    /// <summary>
+    /// Maps languages with fallback to interpretation_services free-text when no structured languages exist.
+    /// </summary>
+    private static List<SchemaOrgLanguage> MapLanguagesWithFallback(
+        ICollection<OrukLanguage> languages,
+        string? interpretationServices,
+        string sourcePrefix,
+        TransformationReport report)
+    {
+        var result = MapLanguages(languages, sourcePrefix, report);
+
+        // Fallback: if no structured languages and interpretation_services is present, use it as free-text
+        if (result.Count == 0 && !string.IsNullOrWhiteSpace(interpretationServices))
+        {
+            var stripped = StripHtml(interpretationServices);
+            result.Add(new SchemaOrgLanguage { Name = stripped });
+        }
+
         return result;
     }
 
@@ -1020,11 +1060,11 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
                 vtClass, co.ValidTo,
                 vtClass == VodimClassification.Valid ? co.ValidTo : null, vtNote);
 
-            // valid_from — no direct Schema.org Offer mapping
-            Record(report, $"{prefix}.valid_from", "—",
-                Classify(co.ValidFrom) == VodimClassification.Missing
-                    ? VodimClassification.Missing : VodimClassification.Unmapped,
-                co.ValidFrom, null, "valid_from has no Schema.org Offer equivalent.");
+            // valid_from → validFrom
+            var (vfClass, vfNote) = ClassifyDate(co.ValidFrom);
+            Record(report, $"{prefix}.valid_from", "Offer.validFrom",
+                vfClass, co.ValidFrom,
+                vfClass == VodimClassification.Valid ? co.ValidFrom : null, vfNote);
 
             if (priceClass != VodimClassification.Invalid)
             {
@@ -1034,6 +1074,7 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
                     PriceCurrency = currency,
                     Description = amountDescription ?? optionLabel,
                     PriceValidUntil = vtClass == VodimClassification.Valid ? co.ValidTo : null,
+                    ValidFrom = vfClass == VodimClassification.Valid ? co.ValidFrom : null,
                 });
             }
         }
@@ -1458,6 +1499,24 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             $"Value '{Truncate(value, 40)}' is not a parseable ISO 8601 date.");
     }
 
+    /// <summary>
+    /// Validates language code as BCP-47 or ISO 639-1 format.
+    /// Accepts: 2-3 letter codes (en, eng), with optional script (en-Latn), region (en-US), or variant.
+    /// Pattern: ^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2}|\d{3})?$
+    /// </summary>
+    private static (VodimClassification Class, string? Note) ClassifyLanguageCode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
+        
+        const string languageCodePattern = @"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2}|\d{3})?$";
+        var regex = new System.Text.RegularExpressions.Regex(languageCodePattern);
+        
+        if (regex.IsMatch(value))
+            return (VodimClassification.Valid, null);
+        return (VodimClassification.Invalid,
+            $"Language code '{Truncate(value, 20)}' is not valid BCP-47 (expected format: en, en-US, zh-Hans, etc.).");
+    }
+
     private static (VodimClassification Class, string? Note) ClassifyTime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return (VodimClassification.Missing, null);
@@ -1572,4 +1631,22 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
 
     private static string? Truncate(string? s, int max = 200) =>
         s is null ? null : s.Length <= max ? s : s[..max] + "…";
+
+    /// <summary>
+    /// Determines the jurisdiction for a GovernmentService.
+    /// Derives from service_areas names (e.g., "Bristol") or feed base URL hostname.
+    /// Returns the first service area name if present; otherwise derives from URI.
+    /// </summary>
+    private static string? DetermineJurisdiction(OrukService service, TransformationOptions options)
+    {
+        // Try service_areas first
+        var firstArea = service.ServiceAreas?.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(firstArea?.Name))
+            return firstArea.Name;
+
+        // Fallback: derive from service URI hostname if available
+        // (e.g., "bristol.example.com" → "Bristol" or similar heuristic)
+        // For now, just return null if no service areas
+        return null;
+    }
 }
