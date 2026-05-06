@@ -75,23 +75,29 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
 
         sb.AppendLine("    <section class=\"summary\">");
         sb.AppendLine("      <h2>Overall VODIM Summary</h2>");
-        sb.AppendLine("      <table class=\"vodim-table summary-table\">");
-        sb.AppendLine("        <thead><tr>");
-        sb.AppendLine("          <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
-        sb.AppendLine("        </tr></thead>");
-        sb.AppendLine("        <tbody>");
-        AppendVodimRow(sb, "V", "Valid", totalV, totalAll, "valid");
-        AppendVodimRow(sb, "O", "Other", totalO, totalAll, "other");
-        AppendVodimRow(sb, "D", "Default", totalD, totalAll, "default");
-        AppendVodimRow(sb, "I", "Invalid", totalI, totalAll, "invalid");
-        AppendVodimRow(sb, "M", "Missing", totalM, totalAll, "missing");
-        AppendVodimRow(sb, "U", "Unmapped", totalU, totalAll, "unmapped");
-        sb.AppendLine("        </tbody>");
-        sb.AppendLine("        <tfoot><tr>");
-        sb.AppendLine($"          <td colspan=\"2\"><strong>Total fields</strong></td>");
-        sb.AppendLine($"          <td><strong>{totalAll}</strong></td><td></td>");
-        sb.AppendLine("        </tr></tfoot>");
-        sb.AppendLine("      </table>");
+        sb.AppendLine("      <div class=\"summary-container\">");
+        sb.AppendLine("        <table class=\"vodim-table summary-table\">");
+        sb.AppendLine("          <thead><tr>");
+        sb.AppendLine("            <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
+        sb.AppendLine("          </tr></thead>");
+        sb.AppendLine("          <tbody>");
+        AppendVodimRow(sb, "V", "Valid", totalV, totalAll, "valid", indent: 12);
+        AppendVodimRow(sb, "O", "Other", totalO, totalAll, "other", indent: 12);
+        AppendVodimRow(sb, "D", "Default", totalD, totalAll, "default", indent: 12);
+        AppendVodimRow(sb, "I", "Invalid", totalI, totalAll, "invalid", indent: 12);
+        AppendVodimRow(sb, "M", "Missing", totalM, totalAll, "missing", indent: 12);
+        AppendVodimRow(sb, "U", "Unmapped", totalU, totalAll, "unmapped", indent: 12);
+        sb.AppendLine("          </tbody>");
+        sb.AppendLine("          <tfoot><tr>");
+        sb.AppendLine($"            <td colspan=\"2\"><strong>Total fields</strong></td>");
+        sb.AppendLine($"            <td><strong>{totalAll}</strong></td><td></td>");
+        sb.AppendLine("          </tr></tfoot>");
+        sb.AppendLine("        </table>");
+
+        // Add pie chart
+        AppendPieChart(sb, totalV, totalO, totalD, totalI, totalM, totalU, totalAll);
+
+        sb.AppendLine("      </div>");
         sb.AppendLine("    </section>");
 
         // ── Per-field sections ────────────────────────────────────────────────────
@@ -124,26 +130,32 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
                     .Select(g => g.Key)
                     .FirstOrDefault() ?? "—";
 
-                // Anchor id based on field path — use only safe characters, no HTML encoding
-                var anchorId = "field-" + SanitizeId(group.Key);
+                // Anchor id based on field path
+                var anchorId = "field-" + Encode(group.Key.Replace('.', '-').Replace('[', '-').Replace(']', '-'));
 
                 sb.AppendLine($"      <section class=\"field\" id=\"{anchorId}\">");
                 sb.AppendLine($"        <h2 class=\"field-heading\">{Encode(group.Key)}</h2>");
                 sb.AppendLine($"        <p class=\"target-path\">→ <code>{Encode(targetPath)}</code></p>");
 
-                sb.AppendLine("        <table class=\"vodim-table field-table\">");
-                sb.AppendLine("          <thead><tr>");
-                sb.AppendLine("            <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
-                sb.AppendLine("          </tr></thead>");
-                sb.AppendLine("          <tbody>");
-                AppendVodimRow(sb, "V", "Valid", fV, fTotal, "valid", indent: 12);
-                AppendVodimRow(sb, "O", "Other", fO, fTotal, "other", indent: 12);
-                AppendVodimRow(sb, "D", "Default", fD, fTotal, "default", indent: 12);
-                AppendVodimRow(sb, "I", "Invalid", fI, fTotal, "invalid", indent: 12);
-                AppendVodimRow(sb, "M", "Missing", fM, fTotal, "missing", indent: 12);
-                AppendVodimRow(sb, "U", "Unmapped", fU, fTotal, "unmapped", indent: 12);
-                sb.AppendLine("          </tbody>");
-                sb.AppendLine("        </table>");
+                sb.AppendLine("        <div class=\"field-container\">");
+                sb.AppendLine("          <table class=\"vodim-table field-table\">");
+                sb.AppendLine("            <thead><tr>");
+                sb.AppendLine("              <th>Code</th><th>Classification</th><th>Count</th><th>Percentage</th>");
+                sb.AppendLine("            </tr></thead>");
+                sb.AppendLine("            <tbody>");
+                AppendVodimRow(sb, "V", "Valid", fV, fTotal, "valid", indent: 14);
+                AppendVodimRow(sb, "O", "Other", fO, fTotal, "other", indent: 14);
+                AppendVodimRow(sb, "D", "Default", fD, fTotal, "default", indent: 14);
+                AppendVodimRow(sb, "I", "Invalid", fI, fTotal, "invalid", indent: 14);
+                AppendVodimRow(sb, "M", "Missing", fM, fTotal, "missing", indent: 14);
+                AppendVodimRow(sb, "U", "Unmapped", fU, fTotal, "unmapped", indent: 14);
+                sb.AppendLine("            </tbody>");
+                sb.AppendLine("          </table>");
+
+                // Add field-level pie chart
+                AppendPieChart(sb, fV, fO, fD, fI, fM, fU, fTotal, indent: 10);
+
+                sb.AppendLine("        </div>");
 
                 // Aggregate notes (without instance-specific source values)
                 var notes = records
@@ -199,7 +211,7 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
         StringBuilder sb, string code, string label,
         int count, int total, string cssClass, int indent = 10)
     {
-        var pct = total == 0 ? "0%" : $"{(int)Math.Round(count * 100.0 / total)}%";
+        var pct = total == 0 ? "0%" : $"{count * 100 / total}%";
         var pad = new string(' ', indent);
         sb.AppendLine(
             $"{pad}<tr class=\"vodim-{cssClass}\">" +
@@ -221,26 +233,6 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
     };
 
     private static string Encode(string s) => WebUtility.HtmlEncode(s);
-
-    /// <summary>
-    /// Produces a safe HTML id attribute value from an ORUK field path.
-    /// Replaces non-alphanumeric characters with hyphens and collapses consecutive
-    /// hyphens to keep IDs readable.
-    /// </summary>
-    private static string SanitizeId(string key)
-    {
-        var chars = key.ToCharArray();
-        for (int i = 0; i < chars.Length; i++)
-        {
-            if (!char.IsLetterOrDigit(chars[i]))
-                chars[i] = '-';
-        }
-        // Collapse consecutive hyphens
-        var result = new string(chars);
-        while (result.Contains("--", StringComparison.Ordinal))
-            result = result.Replace("--", "-", StringComparison.Ordinal);
-        return result.Trim('-');
-    }
 
     private static void AppendPieChart(
         StringBuilder sb,
@@ -328,7 +320,7 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
                       $"A {radius},{radius} 0 {largeArcFlag},1 {endX:F2},{endY:F2} Z";
             }
 
-            sb.AppendLine($"{pad4}<path d=\"{path}\" fill=\"{bgColor}\" stroke=\"{fgColor}\" stroke-width=\"2\">");   
+            sb.AppendLine($"{pad4}<path d=\"{path}\" fill=\"{bgColor}\" stroke=\"{fgColor}\" stroke-width=\"2\">");
             sb.AppendLine($"{pad6}<title>{Encode(label)}: {count} ({percentage:P0})</title>");
             sb.AppendLine($"{pad4}</path>");
 
@@ -350,8 +342,8 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
                 // Format label text with VODIM classification
                 // Right side: "33% :Label" (percentage left, label right)
                 // Left side: "Label: 33%" (label left, percentage right)
-                var labelText = isRightSide
-                    ? $"{percentage:P0} :{label}"
+                var labelText = isRightSide 
+                    ? $"{percentage:P0} :{label}" 
                     : $"{label}: {percentage:P0}";
 
                 // Add percentage label with VODIM classification
@@ -380,7 +372,7 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
             sb.AppendLine($"{pad2}<div class=\"chart-legend\">");
             sb.Append($"{pad4}<span class=\"legend-label\">Small segments:</span> ");
 
-            var legendItems = smallSegments.Select(s =>
+            var legendItems = smallSegments.Select(s => 
                 $"<span class=\"legend-item\" style=\"color: {s.FgColor};\">" +
                 $"{Encode(s.Label)} {s.Count} ({s.Percentage:P1})" +
                 $"</span>");
@@ -574,7 +566,51 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
         /* ── Summary section ──────────────────────────────────────── */
         .summary { margin-bottom: 2.5rem; }
 
-        .summary-table { max-width: 500px; }
+        .summary-container {
+          display: flex;
+          gap: 2rem;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .summary-table { max-width: 500px; flex-shrink: 0; }
+
+        .pie-chart {
+          flex-shrink: 0;
+          width: 360px;
+          max-width: 360px;
+        }
+
+        .pie-chart svg {
+          width: 100%;
+          height: auto;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+        }
+
+        .pie-chart text {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          user-select: none;
+        }
+
+        /* Chart legend for small segments */
+        .chart-legend {
+          margin-top: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          background: var(--istanduk-off-white);
+          border: 1px solid var(--istanduk-border);
+          border-radius: 4px;
+          font-size: 0.85rem;
+          line-height: 1.5;
+        }
+
+        .chart-legend .legend-label {
+          font-weight: 600;
+          color: var(--istanduk-text);
+        }
+
+        .chart-legend .legend-item {
+          font-weight: 600;
+        }
 
         /* ── Field sections ───────────────────────────────────────── */
         .field {
@@ -587,7 +623,14 @@ public sealed class HtmlDataQualityReportWriter : IDataQualityReportWriter
 
         .field h2.field-heading { margin-top: 0; }
 
-        .field-table { max-width: 500px; }
+        .field-container {
+          display: flex;
+          gap: 2rem;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .field-table { max-width: 500px; flex-shrink: 0; }
 
         .target-path {
           font-size: 0.88rem;
