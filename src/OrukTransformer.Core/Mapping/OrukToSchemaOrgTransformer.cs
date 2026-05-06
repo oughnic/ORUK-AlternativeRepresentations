@@ -154,19 +154,8 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
                 ? service.Status : null,
             statusNote);
 
-        // interpretation_services → availableLanguage (free-text fallback if no language entities)
-        var interpretationServices = StripHtml(service.InterpretationServices);
-        var interpretationNote = service.InterpretationServices is not null
-            ? string.Join(" ", new[]
-              {
-                  "Mapped as free-text Language name. Prefer service.languages collection.",
-                  HtmlNote(service.InterpretationServices)
-              }.Where(n => n is not null))
-            : null;
-        Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
-            Classify(service.InterpretationServices),
-            service.InterpretationServices, interpretationServices,
-            string.IsNullOrWhiteSpace(interpretationNote) ? null : interpretationNote);
+        // interpretation_services — VODIM recorded inside MapLanguagesWithFallback
+        // once we know whether the fallback is needed (structured languages take priority).
 
         // application_process → termsOfService — HTML stripped for schema.org compatibility
         var applicationProcess = StripHtml(service.ApplicationProcess);
@@ -933,6 +922,9 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
 
     /// <summary>
     /// Maps languages with fallback to interpretation_services free-text when no structured languages exist.
+    /// Records the VODIM entry for interpretation_services here — after we know whether the structured
+    /// languages collection produced usable output — so the classification accurately reflects what
+    /// actually reached the output document.
     /// </summary>
     private static List<SchemaOrgLanguage> MapLanguagesWithFallback(
         ICollection<OrukLanguage> languages,
@@ -942,11 +934,41 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
     {
         var result = MapLanguages(languages, sourcePrefix, report);
 
-        // Fallback: if no structured languages and interpretation_services is present, use it as free-text
-        if (result.Count == 0 && !string.IsNullOrWhiteSpace(interpretationServices))
+        if (string.IsNullOrWhiteSpace(interpretationServices))
         {
+            // Field absent — nothing to fall back to.
+            Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
+                VodimClassification.Missing, interpretationServices, null);
+        }
+        else if (result.Count > 0)
+        {
+            // Structured languages produced valid output; interpretation_services is not used.
+            Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
+                VodimClassification.Other, interpretationServices, null,
+                "Superseded by service.languages collection; value not used in output.");
+        }
+        else
+        {
+            // No structured language output — attempt free-text fallback.
             var stripped = StripHtml(interpretationServices);
-            result.Add(new SchemaOrgLanguage { Name = stripped });
+            if (!string.IsNullOrWhiteSpace(stripped))
+            {
+                result.Add(new SchemaOrgLanguage { Name = stripped });
+                Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
+                    VodimClassification.Other, interpretationServices, stripped,
+                    string.Join(" ", new[]
+                    {
+                        "Mapped as free-text Language name. Prefer service.languages collection.",
+                        HtmlNote(interpretationServices)
+                    }.Where(n => n is not null)));
+            }
+            else
+            {
+                // Value was present but HTML stripping produced an empty string — nothing emitted.
+                Record(report, "service.interpretation_services", "GovernmentService.availableLanguage",
+                    VodimClassification.Invalid, interpretationServices, null,
+                    "HTML markup stripped to empty string; no language name could be extracted.");
+            }
         }
 
         return result;
