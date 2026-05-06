@@ -22,7 +22,7 @@ The ORUK `Service` entity maps to `schema:GovernmentService` for government or p
 | `alternate_name` | `alternateName` | Direct mapping. |
 | `description` | `description` | Direct mapping. |
 | `url` | `url` | Direct mapping. |
-| `last_modified` | `dateModified` | ISO 8601 timestamp of last update. |
+| `last_modified` | `additionalProperty[dateModified]` | ISO 8601 timestamp of last update. Emitted as an additionalProperty because `dateModified` is a `CreativeWork` property, not a `Thing` property, and `GovernmentService` does not inherit from `CreativeWork`. |
 | `email` | — | **Unmapped.** `schema:GovernmentService` has no suitable property for a service-level contact email. Field is intentionally omitted from output (lossy). See [README – Unmapped ORUK fields](../../README.md#unmapped-oruk-fields). |
 | `status` | `schema:serviceType` note | `active` → no special annotation; `inactive` → `schema:discontinued` pattern (no standard property; use `additionalProperty`). |
 | `interpretation_services` | `availableLanguage` | Map to `Language` type if structured languages present; fall back to free-text name if no structured languages. |

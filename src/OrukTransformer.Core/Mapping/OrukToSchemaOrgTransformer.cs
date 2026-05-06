@@ -248,9 +248,9 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             string.IsNullOrEmpty(service.Alert) ? VodimClassification.Missing : VodimClassification.Unmapped,
             service.Alert, null, "No Schema.org mapping defined for alert.");
 
-        // last_modified → dateModified
+        // last_modified → additionalProperty[dateModified]
         var (dateModClass, dateModNote) = ClassifyDate(service.LastModified);
-        Record(report, "service.last_modified", "Thing.dateModified",
+        Record(report, "service.last_modified", "additionalProperty[dateModified]",
             dateModClass, service.LastModified,
             dateModClass == VodimClassification.Valid ? service.LastModified : null,
             dateModNote);
@@ -314,8 +314,8 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
                 new() { Name = accreditations }
             };
 
-        // additionalProperty — unmappable-but-preserve fields
-        var additionalProps = BuildServiceAdditionalProperties(service);
+        // additionalProperty — unmappable-but-preserve fields (including dateModified via additionalProperty)
+        var additionalProps = BuildServiceAdditionalProperties(service, dateModClass, service.LastModified);
 
         return new SchemaOrgGovernmentService
         {
@@ -342,7 +342,6 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             Keywords = keywords.Count > 0 ? string.Join(", ", keywords) : null,
             HasCredential = credentials,
             TermsOfService = applicationProcess,
-            DateModified = dateModClass == VodimClassification.Valid ? service.LastModified : null,
             AdditionalProperty = additionalProps.Count > 0 ? additionalProps : null,
         };
     }
@@ -1374,7 +1373,8 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
 
     // ── AdditionalProperty builders ───────────────────────────────────────────────
 
-    private static List<SchemaOrgPropertyValue> BuildServiceAdditionalProperties(OrukService service)
+    private static List<SchemaOrgPropertyValue> BuildServiceAdditionalProperties(
+        OrukService service, VodimClassification dateModClass, string? lastModified)
     {
         var props = new List<SchemaOrgPropertyValue>();
         if (!string.IsNullOrWhiteSpace(service.Status))
@@ -1385,6 +1385,8 @@ public sealed partial class OrukToSchemaOrgTransformer : IOrukToSchemaOrgTransfo
             props.Add(new SchemaOrgPropertyValue { Name = "assuredBy", Value = service.AssurerEmail });
         if (!string.IsNullOrWhiteSpace(service.WaitTime))
             props.Add(new SchemaOrgPropertyValue { Name = "waitTime", Value = service.WaitTime });
+        if (dateModClass == VodimClassification.Valid && !string.IsNullOrWhiteSpace(lastModified))
+            props.Add(new SchemaOrgPropertyValue { Name = "dateModified", Value = lastModified });
         return props;
     }
 
