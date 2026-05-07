@@ -42,6 +42,34 @@ var dataQualityReportOption = new Option<FileInfo?>("--data-quality-report")
     DefaultValueFactory = _ => null
 };
 
+var logLevelOption = new Option<string>("--log-level")
+{
+    Description = "Minimum log level for console output. " +
+                  "Valid values: trace, debug, information, warning, error, critical, none. " +
+                  "Defaults to 'information'.",
+    DefaultValueFactory = _ => "information"
+};
+
+var quietOption = new Option<bool>("--quiet")
+{
+    Description = "Suppress informational log output (equivalent to --log-level warning). " +
+                  "VODIM summary is always written regardless of this flag.",
+    DefaultValueFactory = _ => false
+};
+
+var timeoutOption = new Option<int>("--timeout")
+{
+    Description = "HTTP request timeout in seconds for each page fetch. Defaults to 30.",
+    DefaultValueFactory = _ => 30
+};
+
+var formatOption = new Option<string>("--format")
+{
+    Description = "Output format. Currently only 'json-ld' is supported. " +
+                  "Defaults to 'json-ld'.",
+    DefaultValueFactory = _ => "json-ld"
+};
+
 // ── Root command ──────────────────────────────────────────────────────────────
 
 var rootCommand = new RootCommand(
@@ -52,7 +80,11 @@ var rootCommand = new RootCommand(
     jsonLdOption,
     maxRecordsOption,
     verboseOption,
-    dataQualityReportOption
+    dataQualityReportOption,
+    logLevelOption,
+    quietOption,
+    timeoutOption,
+    formatOption
 };
 
 rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
@@ -68,12 +100,31 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     var maxRecords = parseResult.GetValue(maxRecordsOption);
     var verbose = parseResult.GetValue(verboseOption);
     var dataQualityReport = parseResult.GetValue(dataQualityReportOption);
+    var logLevelRaw = parseResult.GetValue(logLevelOption)!;
+    var quiet = parseResult.GetValue(quietOption);
+    var timeoutSeconds = parseResult.GetValue(timeoutOption);
+    var format = parseResult.GetValue(formatOption)!;
+
+    // Validate --format
+    if (!string.Equals(format, "json-ld", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            $"Error: '--format' value '{format}' is not supported. Only 'json-ld' is currently available.");
+        Environment.Exit(1);
+        return;
+    }
+
+    // ── Resolve log level ─────────────────────────────────────────────────────
+
+    var logLevel = quiet
+        ? LogLevel.Warning
+        : ParseLogLevel(logLevelRaw);
 
     // ── HTTP client ───────────────────────────────────────────────────────────
 
     using var httpClient = new HttpClient
     {
-        Timeout = TimeSpan.FromSeconds(30)
+        Timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 30)
     };
     httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
         "OrukTransformer.Cli/1.0 (+https://github.com/iStandUK/ORUK-AlternativeRepresentations)");
@@ -81,7 +132,7 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     // ── Logging ───────────────────────────────────────────────────────────────
 
     using var loggerFactory = LoggerFactory.Create(builder =>
-        builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+        builder.AddConsole().SetMinimumLevel(logLevel));
 
     // ── Services ──────────────────────────────────────────────────────────────
 
@@ -110,3 +161,19 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
 
 var result = rootCommand.Parse(args);
 return await result.InvokeAsync();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static LogLevel ParseLogLevel(string value) =>
+    value.ToLowerInvariant() switch
+    {
+        "trace"       => LogLevel.Trace,
+        "debug"       => LogLevel.Debug,
+        "information" => LogLevel.Information,
+        "warning"     => LogLevel.Warning,
+        "error"       => LogLevel.Error,
+        "critical"    => LogLevel.Critical,
+        "none"        => LogLevel.None,
+        _             => LogLevel.Information
+    };
+

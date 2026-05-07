@@ -111,7 +111,6 @@ public sealed class RunCommand
                 cancellationToken);
             _logger.LogInformation("Data-quality report written to {File}.",
                 dataQualityReportFile.FullName);
-            Console.Error.WriteLine($"Data-quality report written to: {dataQualityReportFile.FullName}");
         }
 
         return 0;
