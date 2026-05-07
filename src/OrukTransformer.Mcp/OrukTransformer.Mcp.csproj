@@ -16,6 +16,11 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Link feeds.json from the repo root so it is always present next to the exe -->
+    <None Include="..\..\feeds.json">
+      <Link>feeds.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
