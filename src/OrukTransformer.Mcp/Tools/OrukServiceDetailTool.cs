@@ -36,16 +36,28 @@ public sealed class OrukServiceDetailTool(
         string serviceId,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation(
+            "GetServiceDetail: service={ServiceId}, feed={FeedUrl}.", serviceId, feedUrl);
+
         if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var feedUri))
+        {
+            logger.LogWarning("GetServiceDetail: invalid feed_url value '{FeedUrl}'.", feedUrl);
             return """{"error":"Invalid feed_url value."}""";
+        }
 
         var service = await serviceClient.GetByIdAsync(feedUri, serviceId, cancellationToken);
 
         if (service is null)
         {
-            logger.LogWarning("Service {Id} not found in feed {Url}.", serviceId, feedUrl);
+            logger.LogWarning(
+                "GetServiceDetail: service {ServiceId} not found in feed {FeedUrl}.",
+                serviceId, feedUrl);
             return $"{{\"error\":\"Service '{serviceId}' was not found in feed '{feedUrl}'.\"}}";
         }
+
+        logger.LogInformation(
+            "GetServiceDetail: retrieved '{ServiceName}' (id={ServiceId}) from {FeedUrl}.",
+            service.Name, service.Id, feedUrl);
 
         // Opening hours — flatten schedules from service and service_at_locations
         var allSchedules = service.Schedules

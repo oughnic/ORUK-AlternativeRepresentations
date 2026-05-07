@@ -54,8 +54,14 @@ public sealed class OrukServiceSearchTool(
         double? maximumAge = null,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation(
+            "SearchServices: query='{Query}', location='{Location}', radius={Radius}km, " +
+            "freeOnly={FreeOnly}, minAge={MinAge}, maxAge={MaxAge}, feeds={FeedCount}.",
+            query, location ?? "(any)", radiusKm, freeOnly, minimumAge, maximumAge, feedUrls.Count);
+
         if (feedUrls.Count == 0)
         {
+            logger.LogError("SearchServices aborted: no ORUK feeds configured.");
             return """{"error":"No ORUK feeds are configured. Add feed URLs to feeds.json."}""";
         }
 
@@ -69,8 +75,16 @@ public sealed class OrukServiceSearchTool(
         {
             try
             {
-                // Attempt taxonomy-based filtering first
                 var termIds = await TryResolveTermIds(query, feedUrl, cancellationToken);
+
+                if (termIds.Count > 0)
+                    logger.LogInformation(
+                        "Taxonomy resolved '{Query}' to {Count} term(s) for feed {FeedUrl}.",
+                        query, termIds.Count, feedUrl);
+                else
+                    logger.LogInformation(
+                        "No taxonomy match for '{Query}' in feed {FeedUrl} — using keyword search only.",
+                        query, feedUrl);
 
                 var searchQuery = new OrukServiceQuery
                 {
@@ -90,11 +104,15 @@ public sealed class OrukServiceSearchTool(
                     feedResults.Add(new ServiceWithOrigin(service, feedUrl));
                 }
 
+                logger.LogInformation(
+                    "Feed {FeedUrl} returned {Count} result(s) for query '{Query}'.",
+                    feedUrl, feedResults.Count, query);
+
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Search failed for feed {FeedUrl}. Skipping.", feedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping this feed.", feedUrl);
                 return new List<ServiceWithOrigin>();
             }
         });
@@ -109,6 +127,15 @@ public sealed class OrukServiceSearchTool(
             .Where(r => seen.Add(r.Service.Id))
             .Take(maxTotal)
             .ToList();
+
+        if (unique.Count == 0)
+            logger.LogWarning(
+                "SearchServices: no results found for query '{Query}' across {FeedCount} feed(s).",
+                query, feedUrls.Count);
+        else
+            logger.LogInformation(
+                "SearchServices: returning {Unique} unique service(s) (from {Total} raw result(s)) for query '{Query}'.",
+                unique.Count, results.Count, query);
 
         var summaries = unique.Select(r => MapToSummary(r)).ToList();
         return JsonSerializer.Serialize(new { count = summaries.Count, services = summaries }, JsonOptions);
@@ -125,7 +152,9 @@ public sealed class OrukServiceSearchTool(
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "Taxonomy resolution failed for '{Query}' — falling back to keyword only.", query);
+            logger.LogWarning(ex,
+                "Taxonomy resolution failed for '{Query}' against {FeedUrl} — falling back to keyword search only.",
+                query, feedUrl);
             return [];
         }
     }

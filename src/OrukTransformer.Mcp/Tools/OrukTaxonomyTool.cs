@@ -39,7 +39,14 @@ public sealed class OrukTaxonomyTool(
     {
         var feedUri = ResolveFeedUri(feedUrl);
         if (feedUri is null)
+        {
+            logger.LogError("ListTaxonomyTerms: no feed URL supplied and no feeds are configured.");
             return """{"error":"No ORUK feeds are configured and no feed_url was supplied."}""";
+        }
+
+        logger.LogInformation(
+            "ListTaxonomyTerms: feed={FeedUrl}, filter='{Filter}'.",
+            feedUri, filter ?? "(none)");
 
         var terms = await taxonomyCache.GetTermsAsync(feedUri, cancellationToken);
 
@@ -52,6 +59,11 @@ public sealed class OrukTaxonomyTool(
                     (t.Description?.Contains(lowerFilter, StringComparison.OrdinalIgnoreCase) ?? false))
                 .ToList()
                 .AsReadOnly();
+
+            if (terms.Count == 0)
+                logger.LogWarning(
+                    "ListTaxonomyTerms: filter '{Filter}' matched no taxonomy terms in {FeedUrl}.",
+                    filter, feedUri);
         }
 
         var result = terms.Select(t => new
@@ -63,6 +75,10 @@ public sealed class OrukTaxonomyTool(
             parent_id = t.ParentId,
             description = t.Description
         }).ToList();
+
+        logger.LogInformation(
+            "ListTaxonomyTerms: returning {Count} term(s) from {FeedUrl}.",
+            result.Count, feedUri);
 
         return JsonSerializer.Serialize(new { count = result.Count, terms = result }, JsonOptions);
     }
@@ -82,11 +98,20 @@ public sealed class OrukTaxonomyTool(
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(label))
+        {
+            logger.LogWarning("ResolveTaxonomyLabel: empty label supplied.");
             return """{"error":"label must not be empty."}""";
+        }
 
         var feedUri = ResolveFeedUri(feedUrl);
         if (feedUri is null)
+        {
+            logger.LogError("ResolveTaxonomyLabel: no feed URL supplied and no feeds are configured.");
             return """{"error":"No ORUK feeds are configured and no feed_url was supplied."}""";
+        }
+
+        logger.LogInformation(
+            "ResolveTaxonomyLabel: label='{Label}', feed={FeedUrl}.", label, feedUri);
 
         var termIds = await taxonomyCache.ResolveAsync(label, feedUri, cancellationToken);
         var allTerms = await taxonomyCache.GetTermsAsync(feedUri, cancellationToken);
@@ -96,9 +121,15 @@ public sealed class OrukTaxonomyTool(
             .Select(t => new { t.Id, t.Name, t.Code, t.Taxonomy })
             .ToList();
 
-        logger.LogInformation(
-            "Resolved '{Label}' to {Count} taxonomy term(s) in {FeedUrl}.",
-            label, matched.Count, feedUri);
+        if (matched.Count == 0)
+            logger.LogWarning(
+                "ResolveTaxonomyLabel: no taxonomy terms matched '{Label}' in {FeedUrl}.",
+                label, feedUri);
+        else
+            logger.LogInformation(
+                "ResolveTaxonomyLabel: '{Label}' matched {Count} term(s) in {FeedUrl}: {Terms}.",
+                label, matched.Count, feedUri,
+                string.Join(", ", matched.Select(t => t.Name)));
 
         return JsonSerializer.Serialize(new
         {
