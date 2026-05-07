@@ -57,7 +57,10 @@ builder.Services
     .WithStdioServerTransport()
     .WithTools<OrukServiceSearchTool>()
     .WithTools<OrukServiceDetailTool>()
-    .WithTools<OrukTaxonomyTool>();
+    .WithTools<OrukTaxonomyTool>()
+    .WithTools<OrukFeedInfoTool>()
+    .WithTools<OrukScheduleTool>()
+    .WithTools<OrukRequiredDocumentsTool>();
 
 var host = builder.Build();
 

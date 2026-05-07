@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ## Overview
 
-This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes four tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
+This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes seven tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
 ## MCP Tools
 
@@ -12,6 +12,9 @@ This project implements an MCP server using the [official C# MCP SDK](https://gi
 |------|-------------|
 | `search_services` | Search across all configured ORUK feeds with keyword, location, age, and cost filters. |
 | `get_service_detail` | Retrieve full details (opening times, accessibility, eligibility, cost) for a specific service. |
+| `get_service_schedule` | Get the opening hours and availability schedule for a specific service. |
+| `get_required_documents` | Get what a person needs to access a service — documents, application process, eligibility. |
+| `list_feeds` | List the configured ORUK data source feeds. |
 | `list_taxonomy_terms` | Browse the taxonomy categories used by a feed. |
 | `resolve_taxonomy_label` | Translate a plain-language phrase into taxonomy term IDs. |
 
