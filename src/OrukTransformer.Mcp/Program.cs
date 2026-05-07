@@ -48,6 +48,13 @@ builder.Services
         client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
     });
 
+builder.Services
+    .AddHttpClient<IOrukOrganizationClient, OrukOrganizationClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
+    });
+
 // ── Application services ───────────────────────────────────────────────────────
 builder.Services.AddSingleton<ITaxonomyCache, TaxonomyCache>();
 
@@ -62,7 +69,8 @@ builder.Services
     .WithTools<OrukScheduleTool>()
     .WithTools<OrukRequiredDocumentsTool>()
     .WithTools<OrukServiceFilterTool>()
-    .WithTools<OrukRecentlyUpdatedTool>();
+    .WithTools<OrukRecentlyUpdatedTool>()
+    .WithTools<OrukOrganizationTool>();
 
 var host = builder.Build();
 

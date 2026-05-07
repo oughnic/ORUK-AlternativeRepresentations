@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ## Overview
 
-This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes eleven tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
+This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes thirteen tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
 ## MCP Tools
 
@@ -21,6 +21,8 @@ This project implements an MCP server using the [official C# MCP SDK](https://gi
 | `find_accessible_services` | Find services with a specific accessibility feature (e.g. wheelchair access, hearing loop). |
 | `find_services_by_delivery_type` | Find services filtered by delivery type: physical, virtual (online/phone), or postal. |
 | `get_services_updated_since` | Find services added or updated since a given date — useful for monitoring new provision. |
+| `search_organisations` | Search for organisations (charities, councils, NHS bodies) that deliver services. |
+| `get_organisation_detail` | Full profile of an organisation — description, contacts, website, legal status, services. |
 
 ## Running in Development (stdio)
 
@@ -117,7 +119,8 @@ OrukTransformer.Mcp/
     ├── OrukScheduleTool.cs            # get_service_schedule MCP tool
     ├── OrukRequiredDocumentsTool.cs   # get_required_documents MCP tool
     ├── OrukServiceFilterTool.cs       # get_services_by_language / find_accessible_services / find_services_by_delivery_type
-    └── OrukRecentlyUpdatedTool.cs     # get_services_updated_since MCP tool
+    ├── OrukRecentlyUpdatedTool.cs     # get_services_updated_since MCP tool
+    └── OrukOrganizationTool.cs        # search_organisations / get_organisation_detail MCP tools
 ```
 
 ## Dependencies

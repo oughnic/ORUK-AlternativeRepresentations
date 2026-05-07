@@ -10,11 +10,13 @@ This library provides typed interfaces and implementations for querying ORUK v3 
 
 | File | Purpose |
 |------|---------|
-| `OrukServiceQuery.cs` | Typed record for service search parameters (keyword, taxonomy, proximity, age, cost) |
+| `OrukServiceQuery.cs` | Typed record for service search parameters (keyword, taxonomy, proximity, age, cost, language, accessibility, delivery type, updated-since) |
 | `IOrukServiceClient.cs` | Interface: `SearchAsync` (paginated, filtered) and `GetByIdAsync` |
 | `IOrukTaxonomyClient.cs` | Interface: `GetAllTermsAsync` and `ResolveByLabel` |
+| `IOrukOrganizationClient.cs` | Interface: `SearchAsync` (organisations) and `GetByIdAsync` |
 | `OrukServiceClient.cs` | Concrete implementation with pagination, client-side filtering, tolerant deserialisation |
 | `OrukTaxonomyClient.cs` | Fetches `/taxonomy_terms` and resolves user labels to term IDs |
+| `OrukOrganizationClient.cs` | Fetches `/organizations` with pagination and single-record retrieval |
 | `Internal/OrukUrlBuilder.cs` | Constructs ORUK API URLs from base URL and query parameters |
 
 ## Key Design Decisions
@@ -33,6 +35,11 @@ services.AddHttpClient<IOrukServiceClient, OrukServiceClient>(client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
 });
 services.AddHttpClient<IOrukTaxonomyClient, OrukTaxonomyClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
+});
+services.AddHttpClient<IOrukOrganizationClient, OrukOrganizationClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
