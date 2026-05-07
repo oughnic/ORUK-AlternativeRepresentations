@@ -150,7 +150,7 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                                                                     or System.Text.Json.JsonException)
             {
                 bool isTimeout = ex is TaskCanceledException tce
-                    && tce.InnerException is TimeoutException;
+                    && tce.CancellationToken != cancellationToken;
 
                 if (firstPage)
                 {

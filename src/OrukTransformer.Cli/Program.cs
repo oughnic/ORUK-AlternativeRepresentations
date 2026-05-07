@@ -59,7 +59,8 @@ var quietOption = new Option<bool>("--quiet")
 
 var timeoutOption = new Option<int>("--timeout")
 {
-    Description = "HTTP request timeout in seconds for each page fetch. Defaults to 30.",
+    Description = "HTTP request timeout in seconds for each page fetch. " +
+                  "Defaults to 30. Values less than 1 are treated as 30.",
     DefaultValueFactory = _ => 30
 };
 
