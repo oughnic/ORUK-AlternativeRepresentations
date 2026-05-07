@@ -105,6 +105,9 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     var quiet = parseResult.GetValue(quietOption);
     var timeoutSeconds = parseResult.GetValue(timeoutOption);
     var format = parseResult.GetValue(formatOption)!;
+    var writingJsonToStdout = jsonLd is null;
+    var logLevelProvided = WasOptionProvided(parseResult, "--log-level");
+    var quietProvided = WasOptionProvided(parseResult, "--quiet");
 
     // Validate --format
     if (!string.Equals(format, "json-ld", StringComparison.OrdinalIgnoreCase))
@@ -115,11 +118,26 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
         return;
     }
 
+    // Validate stdout mode constraints: when JSON-LD is written to stdout we
+    // keep stdout reserved for transformed Schema.org only.
+    var optionConflictError = CliOutputModePolicy.ValidateForOutputMode(
+        writingJsonToStdout,
+        verbose,
+        logLevelProvided,
+        quietProvided);
+    if (optionConflictError is not null)
+    {
+        Console.Error.WriteLine($"Error: {optionConflictError}");
+        Environment.Exit(1);
+        return;
+    }
+
     // ── Resolve log level ─────────────────────────────────────────────────────
 
-    var logLevel = quiet
-        ? LogLevel.Warning
-        : ParseLogLevel(logLevelRaw);
+    var logLevel = CliOutputModePolicy.ResolveEffectiveLogLevel(
+        writingJsonToStdout,
+        quiet,
+        logLevelRaw);
 
     // ── HTTP client ───────────────────────────────────────────────────────────
 
@@ -165,16 +183,5 @@ return await result.InvokeAsync();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-static LogLevel ParseLogLevel(string value) =>
-    value.ToLowerInvariant() switch
-    {
-        "trace"       => LogLevel.Trace,
-        "debug"       => LogLevel.Debug,
-        "information" => LogLevel.Information,
-        "warning"     => LogLevel.Warning,
-        "error"       => LogLevel.Error,
-        "critical"    => LogLevel.Critical,
-        "none"        => LogLevel.None,
-        _             => LogLevel.Information
-    };
-
+static bool WasOptionProvided(ParseResult parseResult, string longAlias) =>
+    parseResult.Tokens.Any(t => t.Value.StartsWith(longAlias, StringComparison.OrdinalIgnoreCase));
