@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ## Overview
 
-This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes three tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
+This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes four tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
 ## MCP Tools
 

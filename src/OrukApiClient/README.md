@@ -27,8 +27,14 @@ This library provides typed interfaces and implementations for querying ORUK v3 
 ## Registration (DI)
 
 ```csharp
-services.AddHttpClient<OrukServiceClient>();
-services.AddHttpClient<OrukTaxonomyClient>();
-services.AddSingleton<IOrukServiceClient, OrukServiceClient>();
-services.AddSingleton<IOrukTaxonomyClient, OrukTaxonomyClient>();
+services.AddHttpClient<IOrukServiceClient, OrukServiceClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
+});
+services.AddHttpClient<IOrukTaxonomyClient, OrukTaxonomyClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("MyApp/1.0");
+});
 ```

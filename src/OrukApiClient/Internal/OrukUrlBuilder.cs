@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace OrukApiClient.Internal;
 
 /// <summary>
@@ -25,7 +27,7 @@ internal static class OrukUrlBuilder
             qs["proximity"] = query.Proximity;
 
         if (query.RadiusKm.HasValue)
-            qs["radius"] = query.RadiusKm.Value.ToString("F1");
+            qs["radius"] = query.RadiusKm.Value.ToString("F1", CultureInfo.InvariantCulture);
 
         builder.Query = qs.ToString();
         return builder.Uri;

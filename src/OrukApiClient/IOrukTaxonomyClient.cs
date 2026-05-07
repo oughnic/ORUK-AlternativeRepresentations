@@ -21,7 +21,7 @@ public interface IOrukTaxonomyClient
     /// <summary>
     /// Resolves a human-readable label to matching taxonomy term IDs from a
     /// pre-loaded term list. Applies exact match, then partial/substring match,
-    /// then parent-term expansion. Returns an empty list if no match is found.
+    /// then description contains match. Returns an empty list if no match is found.
     /// </summary>
     /// <param name="label">The label to resolve, e.g. "baby groups" or "dementia".</param>
     /// <param name="terms">Pre-loaded term list from <see cref="GetAllTermsAsync"/>.</param>

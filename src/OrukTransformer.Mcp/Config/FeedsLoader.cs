@@ -24,7 +24,11 @@ internal static class FeedsLoader
             using var doc = JsonDocument.Parse(json);
 
             if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                Console.Error.WriteLine(
+                    $"[FeedsLoader] ERROR: '{feedsJsonPath}' must contain a JSON array; found {doc.RootElement.ValueKind}.");
                 return [];
+            }
 
             var urls = new List<Uri>();
             foreach (var element in doc.RootElement.EnumerateArray())
@@ -48,6 +52,8 @@ internal static class FeedsLoader
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
+            Console.Error.WriteLine(
+                $"[FeedsLoader] ERROR: Could not read or parse '{feedsJsonPath}': {ex.Message}");
             return [];
         }
     }

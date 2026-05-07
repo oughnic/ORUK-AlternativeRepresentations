@@ -52,7 +52,7 @@ public sealed class OrukServiceDetailTool(
             logger.LogWarning(
                 "GetServiceDetail: service {ServiceId} not found in feed {FeedUrl}.",
                 serviceId, feedUrl);
-            return $"{{\"error\":\"Service '{serviceId}' was not found in feed '{feedUrl}'.\"}}";
+            return JsonSerializer.Serialize(new { error = $"Service '{serviceId}' was not found in feed '{feedUrl}'." });
         }
 
         logger.LogInformation(
