@@ -48,11 +48,14 @@ public sealed class OrukRecentlyUpdatedTool(
         double? radiusKm = null,
         [Description("Set to true to return only free-of-charge services.")]
         bool freeOnly = false,
+        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
+                     "If omitted, all configured feeds are searched.")]
+        string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
-            "GetServicesUpdatedSince: since='{Since}', keyword='{Keyword}', location='{Location}'.",
-            sinceDate, keyword ?? "(any)", location ?? "(any)");
+            "GetServicesUpdatedSince: since='{Since}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
+            sinceDate, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
         if (feedUrls.Count == 0)
         {
@@ -70,9 +73,10 @@ public sealed class OrukRecentlyUpdatedTool(
         }
 
         var maxTotal = options.Value.MaxResultsPerQuery;
-        var perFeedLimit = Math.Max(1, (int)Math.Ceiling((double)maxTotal / feedUrls.Count));
+        var targets = ResolveFeedTargets(feedUrl);
+        var perFeedLimit = maxTotal;
 
-        var tasks = feedUrls.Select(async feedUrl =>
+        var tasks = targets.Select(async targetFeedUrl =>
         {
             try
             {
@@ -81,13 +85,13 @@ public sealed class OrukRecentlyUpdatedTool(
                 {
                     try
                     {
-                        termIds = await taxonomyCache.ResolveAsync(keyword, feedUrl, cancellationToken);
+                        termIds = await taxonomyCache.ResolveAsync(keyword, targetFeedUrl, cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex,
                             "Taxonomy resolution failed for '{Keyword}' against {FeedUrl}.",
-                            keyword, feedUrl);
+                            keyword, targetFeedUrl);
                     }
                 }
 
@@ -105,18 +109,18 @@ public sealed class OrukRecentlyUpdatedTool(
                 };
 
                 var feedResults = new List<ServiceWithOrigin>();
-                await foreach (var service in serviceClient.SearchAsync(feedUrl, query, cancellationToken))
-                    feedResults.Add(new ServiceWithOrigin(service, feedUrl));
+                await foreach (var service in serviceClient.SearchAsync(targetFeedUrl, query, cancellationToken))
+                    feedResults.Add(new ServiceWithOrigin(service, targetFeedUrl));
 
                 logger.LogInformation(
                     "GetServicesUpdatedSince: feed {FeedUrl} returned {Count} result(s) updated since {Since}.",
-                    feedUrl, feedResults.Count, sinceDate);
+                    targetFeedUrl, feedResults.Count, sinceDate);
 
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", feedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeedUrl);
                 return new List<ServiceWithOrigin>();
             }
         });
@@ -174,5 +178,41 @@ public sealed class OrukRecentlyUpdatedTool(
             since = sinceDate,
             services = summaries
         }, JsonOptions);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    {
+        if (string.IsNullOrWhiteSpace(feedUrl))
+            return feedUrls.ToList();
+
+        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
+        {
+            logger.LogWarning(
+                "GetServicesUpdatedSince: invalid feedUrl '{FeedUrl}' — searching all feeds.", feedUrl);
+            return feedUrls.ToList();
+        }
+
+        var normalised = NormaliseUrl(uri);
+        var match = feedUrls.Where(f => NormaliseUrl(f) == normalised).ToList();
+
+        if (match.Count == 0)
+        {
+            logger.LogWarning(
+                "GetServicesUpdatedSince: feedUrl '{FeedUrl}' not in configured feeds — searching all feeds.",
+                feedUrl);
+            return feedUrls.ToList();
+        }
+
+        return match;
+    }
+
+    private static string NormaliseUrl(Uri uri)
+    {
+        var s = uri.ToString().TrimEnd('/');
+        if (s.EndsWith("/services", StringComparison.OrdinalIgnoreCase))
+            s = s[..^"/services".Length];
+        return s.ToLowerInvariant();
     }
 }

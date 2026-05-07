@@ -52,12 +52,17 @@ public sealed class OrukServiceSearchTool(
         double? minimumAge = null,
         [Description("Maximum age of intended service users (inclusive).")]
         double? maximumAge = null,
+        [Description(
+            "Restrict results to a specific feed URL — obtained from list_feeds. " +
+            "If omitted, all configured feeds are searched.")]
+        string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
             "SearchServices: query='{Query}', location='{Location}', radius={Radius}km, " +
-            "freeOnly={FreeOnly}, minAge={MinAge}, maxAge={MaxAge}, feeds={FeedCount}.",
-            query, location ?? "(any)", radiusKm, freeOnly, minimumAge, maximumAge, feedUrls.Count);
+            "freeOnly={FreeOnly}, minAge={MinAge}, maxAge={MaxAge}, feedUrl='{FeedUrl}', feeds={FeedCount}.",
+            query, location ?? "(any)", radiusKm, freeOnly, minimumAge, maximumAge,
+            feedUrl ?? "(all)", feedUrls.Count);
 
         if (feedUrls.Count == 0)
         {
@@ -65,26 +70,28 @@ public sealed class OrukServiceSearchTool(
             return """{"error":"No ORUK feeds are configured. Add feed URLs to feeds.json."}""";
         }
 
+        var targets = ResolveFeedTargets(feedUrl);
         var maxTotal = options.Value.MaxResultsPerQuery;
         var results = new List<ServiceWithOrigin>();
 
-        // Fan out search across all configured feeds in parallel
-        var perFeedLimit = Math.Max(1, (int)Math.Ceiling((double)maxTotal / feedUrls.Count));
+        // Each feed independently fetches up to maxTotal records so client-side filters
+        // have sufficient data to work with; the final .Take(maxTotal) limits what is returned.
+        var perFeedLimit = maxTotal;
 
-        var tasks = feedUrls.Select(async feedUrl =>
+        var tasks = targets.Select(async targetFeedUrl =>
         {
             try
             {
-                var termIds = await TryResolveTermIds(query, feedUrl, cancellationToken);
+                var termIds = await TryResolveTermIds(query, targetFeedUrl, cancellationToken);
 
                 if (termIds.Count > 0)
                     logger.LogInformation(
                         "Taxonomy resolved '{Query}' to {Count} term(s) for feed {FeedUrl}.",
-                        query, termIds.Count, feedUrl);
+                        query, termIds.Count, targetFeedUrl);
                 else
                     logger.LogInformation(
                         "No taxonomy match for '{Query}' in feed {FeedUrl} — using keyword search only.",
-                        query, feedUrl);
+                        query, targetFeedUrl);
 
                 var searchQuery = new OrukServiceQuery
                 {
@@ -99,20 +106,20 @@ public sealed class OrukServiceSearchTool(
                 };
 
                 var feedResults = new List<ServiceWithOrigin>();
-                await foreach (var service in serviceClient.SearchAsync(feedUrl, searchQuery, cancellationToken))
+                await foreach (var service in serviceClient.SearchAsync(targetFeedUrl, searchQuery, cancellationToken))
                 {
-                    feedResults.Add(new ServiceWithOrigin(service, feedUrl));
+                    feedResults.Add(new ServiceWithOrigin(service, targetFeedUrl));
                 }
 
                 logger.LogInformation(
                     "Feed {FeedUrl} returned {Count} result(s) for query '{Query}'.",
-                    feedUrl, feedResults.Count, query);
+                    targetFeedUrl, feedResults.Count, query);
 
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping this feed.", feedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping this feed.", targetFeedUrl);
                 return new List<ServiceWithOrigin>();
             }
         });
@@ -142,6 +149,40 @@ public sealed class OrukServiceSearchTool(
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    {
+        if (string.IsNullOrWhiteSpace(feedUrl))
+            return feedUrls.ToList();
+
+        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
+        {
+            logger.LogWarning("SearchServices: invalid feedUrl '{FeedUrl}' — searching all feeds.", feedUrl);
+            return feedUrls.ToList();
+        }
+
+        var normalised = NormaliseUrl(uri);
+        var match = feedUrls.Where(f => NormaliseUrl(f) == normalised).ToList();
+
+        if (match.Count == 0)
+        {
+            logger.LogWarning(
+                "SearchServices: feedUrl '{FeedUrl}' not found in configured feeds — searching all feeds.",
+                feedUrl);
+            return feedUrls.ToList();
+        }
+
+        return match;
+    }
+
+    private static string NormaliseUrl(Uri uri)
+    {
+        var s = uri.ToString().TrimEnd('/');
+        // Strip trailing /services so both base URL forms match configured feed entries
+        if (s.EndsWith("/services", StringComparison.OrdinalIgnoreCase))
+            s = s[..^"/services".Length];
+        return s.ToLowerInvariant();
+    }
 
     private async Task<IReadOnlyList<string>> TryResolveTermIds(
         string query, Uri feedUrl, CancellationToken cancellationToken)
