@@ -132,6 +132,17 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
         return;
     }
 
+    if (!writingJsonToStdout
+        && !quiet
+        && !CliOutputModePolicy.TryParseLogLevel(logLevelRaw, out _))
+    {
+        Console.Error.WriteLine(
+            $"Error: '--log-level' value '{logLevelRaw}' is invalid. " +
+            "Valid values are: trace, debug, information, warning, error, critical, none.");
+        Environment.Exit(1);
+        return;
+    }
+
     // ── Resolve log level ─────────────────────────────────────────────────────
 
     var logLevel = CliOutputModePolicy.ResolveEffectiveLogLevel(
@@ -184,4 +195,6 @@ return await result.InvokeAsync();
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 static bool WasOptionProvided(ParseResult parseResult, string longAlias) =>
-    parseResult.Tokens.Any(t => t.Value.StartsWith(longAlias, StringComparison.OrdinalIgnoreCase));
+    parseResult.Tokens.Any(t =>
+        string.Equals(t.Value, longAlias, StringComparison.OrdinalIgnoreCase)
+        || t.Value.StartsWith($"{longAlias}=", StringComparison.OrdinalIgnoreCase));

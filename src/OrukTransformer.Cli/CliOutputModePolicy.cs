@@ -33,19 +33,39 @@ internal static class CliOutputModePolicy
         if (quiet)
             return LogLevel.Warning;
 
-        return ParseLogLevel(logLevelRaw);
+        return TryParseLogLevel(logLevelRaw, out var parsed)
+            ? parsed
+            : LogLevel.Information;
     }
 
-    internal static LogLevel ParseLogLevel(string value) =>
-        value.ToLowerInvariant() switch
+    internal static bool TryParseLogLevel(string value, out LogLevel logLevel)
+    {
+        switch (value.ToLowerInvariant())
         {
-            "trace" => LogLevel.Trace,
-            "debug" => LogLevel.Debug,
-            "information" => LogLevel.Information,
-            "warning" => LogLevel.Warning,
-            "error" => LogLevel.Error,
-            "critical" => LogLevel.Critical,
-            "none" => LogLevel.None,
-            _ => LogLevel.Information
-        };
+            case "trace":
+                logLevel = LogLevel.Trace;
+                return true;
+            case "debug":
+                logLevel = LogLevel.Debug;
+                return true;
+            case "information":
+                logLevel = LogLevel.Information;
+                return true;
+            case "warning":
+                logLevel = LogLevel.Warning;
+                return true;
+            case "error":
+                logLevel = LogLevel.Error;
+                return true;
+            case "critical":
+                logLevel = LogLevel.Critical;
+                return true;
+            case "none":
+                logLevel = LogLevel.None;
+                return true;
+            default:
+                logLevel = LogLevel.Information;
+                return false;
+        }
+    }
 }

@@ -52,4 +52,13 @@ public class CliOutputModePolicyTests
 
         Assert.Equal(LogLevel.Warning, level);
     }
+
+    [Fact]
+    public void TryParseLogLevel_InvalidValue_ReturnsFalse()
+    {
+        var ok = CliOutputModePolicy.TryParseLogLevel("not-a-level", out var level);
+
+        Assert.False(ok);
+        Assert.Equal(LogLevel.Information, level);
+    }
 }

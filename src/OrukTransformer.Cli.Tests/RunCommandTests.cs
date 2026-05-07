@@ -96,7 +96,7 @@ public class RunCommandTests
 
         var exitCode = await sut.ExecuteAsync(
             SourceUrl,
-            jsonLdFile: new FileInfo("/tmp/output.jsonld"),
+            jsonLdFile: new FileInfo(Path.Combine(Path.GetTempPath(), "output.jsonld")),
             maxRecords: 10,
             verbose: false,
             dataQualityReportFile: null,
