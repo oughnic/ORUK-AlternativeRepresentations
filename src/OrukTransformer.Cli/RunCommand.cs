@@ -100,9 +100,12 @@ public sealed class RunCommand
         // 4. Write JSON-LD output
         await _writer.WriteAsync(merged, jsonLdFile, cancellationToken);
 
-        // 5. Write VODIM console report
+        // 5. Write VODIM console report when JSON-LD is written to file
         var reports = results.Select(r => r.Report).ToList();
-        _reporter.WriteReport(reports, orukUrl, verbose, jsonLdToFile: jsonLdFile is not null);
+        if (jsonLdFile is not null)
+        {
+            _reporter.WriteReport(reports, orukUrl, verbose, jsonLdToFile: true);
+        }
 
         // 6. Optionally write HTML data-quality report
         if (dataQualityReportFile is not null)
@@ -111,7 +114,6 @@ public sealed class RunCommand
                 cancellationToken);
             _logger.LogInformation("Data-quality report written to {File}.",
                 dataQualityReportFile.FullName);
-            Console.Error.WriteLine($"Data-quality report written to: {dataQualityReportFile.FullName}");
         }
 
         return 0;

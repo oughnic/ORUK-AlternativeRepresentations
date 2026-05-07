@@ -103,8 +103,10 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                     continue;
                 }
 
-                // Read response body for logging and fallback deserialization
-                string responseBody = await response.Content.ReadAsStringAsync();
+                // Buffer the response to allow re-reading if the first
+                // deserialization attempt fails (avoids allocating a string on
+                // the happy path).
+                await response.Content.LoadIntoBufferAsync(cancellationToken);
 
                 try
                 {
@@ -117,14 +119,16 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
                         "JSON deserialization failed for page {Page} from {Url}. Attempting fallback with case-insensitive options.", 
                         currentPage, url);
 
-                    // Fallback: try case-insensitive deserialization
+                    // Fallback: read the buffered content as a string and retry
+                    // with case-insensitive property matching.
+                    string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
                     try
                     {
-                        var options = new JsonSerializerOptions
+                        var fallbackOptions = new JsonSerializerOptions
                         {
                             PropertyNameCaseInsensitive = true
                         };
-                        page = JsonSerializer.Deserialize<OrukPage<OrukService>>(responseBody, options);
+                        page = JsonSerializer.Deserialize<OrukPage<OrukService>>(responseBody, fallbackOptions);
 
                         if (page is not null)
                         {
@@ -145,16 +149,32 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
                                                                     or System.Text.Json.JsonException)
             {
+                bool isTimeout = ex is TaskCanceledException tce
+                    && tce.CancellationToken != cancellationToken;
+
                 if (firstPage)
                 {
-                    _logger.LogError(ex,
-                        "Fatal error fetching first page from {Url}. Aborting.", url);
+                    if (isTimeout)
+                        _logger.LogError(
+                            "Request timed out fetching first page from {Url}. " +
+                            "Consider increasing the timeout with --timeout.",
+                            url);
+                    else
+                        _logger.LogError(ex,
+                            "Fatal error fetching first page from {Url}. Aborting.", url);
                     yield break;
                 }
 
-                _logger.LogWarning(ex,
-                    "Error fetching or deserialising page {Page} from {Url}. Skipping page.",
-                    currentPage, url);
+                if (isTimeout)
+                    _logger.LogWarning(
+                        "Request timed out fetching page {Page} from {Url}. " +
+                        "Consider increasing the timeout with --timeout.",
+                        currentPage, url);
+                else
+                    _logger.LogWarning(ex,
+                        "Error fetching or deserialising page {Page} from {Url}. Skipping page.",
+                        currentPage, url);
+
                 currentPage++;
                 continue;
             }
