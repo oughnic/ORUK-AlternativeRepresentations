@@ -108,3 +108,4 @@ logs/
 ## -----------------------------------------------------------------------
 tmp/
 temp/
+/src/OrukTransformer.Cli/Properties/launchSettings.json
