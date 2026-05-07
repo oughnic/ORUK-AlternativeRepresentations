@@ -21,6 +21,7 @@ namespace OrukApiClient;
 public sealed class OrukServiceClient : IOrukServiceClient
 {
     private const int MaxPageSize = 100;
+    private const int MaxPages = 100;
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<OrukServiceClient> _logger;
@@ -48,30 +49,46 @@ public sealed class OrukServiceClient : IOrukServiceClient
 
         // Geocode the proximity string to lat,long — ORUK endpoints require coordinates,
         // not postcodes or place names. Passing a raw postcode returns zero results.
+        // geoPoint is retained for client-side proximity filtering (see IsWithinRadius).
+        GeoPoint? geoPoint = null;
         string? resolvedProximity = null;
         if (!string.IsNullOrWhiteSpace(query.Proximity))
         {
-            var geoPoint = await _geocoder.LookupAsync(query.Proximity, cancellationToken);
+            geoPoint = await _geocoder.LookupAsync(query.Proximity, cancellationToken);
             if (geoPoint is not null)
                 resolvedProximity = geoPoint.ToString();
             else
                 _logger.LogWarning(
                     "Could not geocode '{Location}' to coordinates. " +
-                    "The proximity filter will be omitted from the API request — " +
-                    "results will not be geographically filtered.",
+                    "The proximity filter will be omitted — results will not be geographically filtered.",
                     query.Proximity);
         }
+
+        // serverProximity is what we send to the ORUK API. Some feeds (e.g. LA directories)
+        // return zero results when a proximity parameter is sent even though they have matching
+        // services. On first-page zero results we retry without it and rely on client-side
+        // filtering instead.
+        string? serverProximity = resolvedProximity;
+        bool retriedWithoutServerProximity = false;
 
         // RPDE mode: when a feed returns next_url we follow cursor links instead
         // of incrementing page numbers.
         Uri? rpdeNextUrl = null;
-        int totalPages = 1;
         int currentPage = 1;
+        int pagesFetched = 0;
         bool firstPage = true;
 
         while (remaining > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (pagesFetched >= MaxPages)
+            {
+                _logger.LogWarning(
+                    "Reached {MaxPages}-page safety cap at {BaseUrl}. Stopping pagination.",
+                    MaxPages, OrukUrlBuilder.EnsureBase(feedBaseUrl));
+                break;
+            }
 
             Uri url;
             if (rpdeNextUrl is not null)
@@ -80,9 +97,8 @@ public sealed class OrukServiceClient : IOrukServiceClient
             }
             else
             {
-                if (currentPage > totalPages) break;
                 url = OrukUrlBuilder.BuildServicesUrl(
-                    feedBaseUrl, query, currentPage, pageSize, resolvedProximity);
+                    feedBaseUrl, query, currentPage, pageSize, serverProximity);
             }
 
             OrukPage<OrukService>? page = null;
@@ -115,15 +131,34 @@ public sealed class OrukServiceClient : IOrukServiceClient
                 continue;
             }
 
+            pagesFetched++;
+
             if (page is null || page.Contents.Count == 0)
             {
                 // RPDE feeds may return an empty page with a next_url — stop only
                 // when the next_url is also absent (end of feed).
-                if (page?.NextUrl is null)
+                if (page?.NextUrl is not null)
+                    goto advance;
+
+                // First-page zero results with proximity sent: some ORUK feeds do not
+                // support the proximity parameter and return empty instead of ignoring it.
+                // Retry without server-side proximity and apply client-side filtering instead.
+                if (firstPage && serverProximity is not null && !retriedWithoutServerProximity)
                 {
-                    _logger.LogDebug("Page {Page} returned no contents. Stopping pagination.", currentPage);
-                    yield break;
+                    _logger.LogInformation(
+                        "Feed {BaseUrl} returned 0 results with server-side proximity — " +
+                        "retrying without it. Client-side proximity filter will be applied.",
+                        OrukUrlBuilder.EnsureBase(feedBaseUrl));
+                    serverProximity = null;
+                    retriedWithoutServerProximity = true;
+                    pagesFetched = 0;
+                    continue;
                 }
+
+                _logger.LogDebug(
+                    "Page {Page} returned no contents after {Fetched} page(s). Stopping.",
+                    currentPage, pagesFetched);
+                yield break;
             }
 
             if (firstPage)
@@ -138,10 +173,12 @@ public sealed class OrukServiceClient : IOrukServiceClient
                 }
                 else
                 {
-                    totalPages = Math.Max(page.TotalPages, 1);
+                    // Log reported total_pages but do not trust it — some feeds always
+                    // report total_pages: 1 regardless of actual dataset size.
                     _logger.LogInformation(
-                        "Feed reports {Total} services across {Pages} pages at {BaseUrl}.",
-                        page.TotalItems, page.TotalPages, OrukUrlBuilder.EnsureBase(feedBaseUrl));
+                        "Feed at {BaseUrl} reports {Total} total items, {Pages} page(s) " +
+                        "(using full-page heuristic to detect end of data).",
+                        OrukUrlBuilder.EnsureBase(feedBaseUrl), page.TotalItems, page.TotalPages);
                 }
             }
 
@@ -152,12 +189,19 @@ public sealed class OrukServiceClient : IOrukServiceClient
                 if (!MatchesClientSideFilters(service, query))
                     continue;
 
+                // Client-side proximity filter — applied whether or not server-side proximity
+                // was sent. This handles feeds that ignore the proximity parameter entirely.
+                if (geoPoint is not null && query.RadiusKm.HasValue &&
+                    !IsWithinRadius(service, geoPoint, query.RadiusKm.Value))
+                    continue;
+
                 yield return service;
                 remaining--;
             }
 
+            advance:
             // Advance to next page
-            if (page.NextUrl is not null)
+            if (page!.NextUrl is not null)
             {
                 if (!Uri.TryCreate(page.NextUrl, UriKind.Absolute, out var nextUri))
                 {
@@ -170,10 +214,19 @@ public sealed class OrukServiceClient : IOrukServiceClient
             else
             {
                 rpdeNextUrl = null;
-                if (currentPage >= totalPages) break;
+
+                // Use the "full page" heuristic to detect end-of-data.
+                // Some feeds always report total_pages: 1 (e.g. Open Sessions) so we cannot
+                // trust the reported value. A partial page (fewer items than pageSize) is the
+                // reliable end-of-feed signal.
+                if (page.Contents.Count < pageSize) break;
                 currentPage++;
             }
         }
+
+        _logger.LogDebug(
+            "Completed pagination for {BaseUrl}: {PagesFetched} page(s) fetched.",
+            OrukUrlBuilder.EnsureBase(feedBaseUrl), pagesFetched);
     }
 
     /// <inheritdoc/>
@@ -262,8 +315,12 @@ public sealed class OrukServiceClient : IOrukServiceClient
         }
 
         // Age range
+        // Guard: treat maximum_age == 0 as "no maximum" — some feeds (e.g. Open Sessions)
+        // translate an absent upper bound as 0 rather than null, which would otherwise
+        // cause all services to be excluded from minimum-age queries.
         if (query.MinimumAge.HasValue &&
             service.MaximumAge.HasValue &&
+            service.MaximumAge.Value > 0 &&
             service.MaximumAge.Value < query.MinimumAge.Value)
             return false;
 
@@ -369,4 +426,40 @@ public sealed class OrukServiceClient : IOrukServiceClient
 
         return false;
     }
+
+    /// <summary>
+    /// Returns true when the service has at least one geocoded location within
+    /// <paramref name="radiusKm"/> of <paramref name="queryPoint"/>.
+    /// Services with no geocoded locations are included (receive-liberally policy).
+    /// </summary>
+    private static bool IsWithinRadius(OrukService service, GeoPoint queryPoint, double radiusKm)
+    {
+        var geoLocations = service.ServiceAtLocations
+            .Select(sal => sal.Location)
+            .Where(l => l is not null && l.Latitude.HasValue && l.Longitude.HasValue)
+            .ToList();
+
+        // No geocoded locations — include rather than exclude (data may be incomplete).
+        if (geoLocations.Count == 0) return true;
+
+        return geoLocations.Any(loc =>
+            HaversineKm(queryPoint.Latitude, queryPoint.Longitude,
+                        loc!.Latitude!.Value, loc!.Longitude!.Value) <= radiusKm);
+    }
+
+    /// <summary>
+    /// Haversine great-circle distance in kilometres between two WGS84 coordinates.
+    /// </summary>
+    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371.0;
+        var dLat = ToRadians(lat2 - lat1);
+        var dLon = ToRadians(lon2 - lon1);
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2)) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+    }
+
+    private static double ToRadians(double degrees) => degrees * Math.PI / 180.0;
 }
