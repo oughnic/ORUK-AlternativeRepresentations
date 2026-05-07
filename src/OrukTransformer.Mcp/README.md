@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ## Overview
 
-This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes seven tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
+This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes eleven tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
 ## MCP Tools
 
@@ -17,6 +17,10 @@ This project implements an MCP server using the [official C# MCP SDK](https://gi
 | `list_feeds` | List the configured ORUK data source feeds. |
 | `list_taxonomy_terms` | Browse the taxonomy categories used by a feed. |
 | `resolve_taxonomy_label` | Translate a plain-language phrase into taxonomy term IDs. |
+| `get_services_by_language` | Find services delivered in a specific language (e.g. Welsh, Polish, BSL, Arabic). |
+| `find_accessible_services` | Find services with a specific accessibility feature (e.g. wheelchair access, hearing loop). |
+| `find_services_by_delivery_type` | Find services filtered by delivery type: physical, virtual (online/phone), or postal. |
+| `get_services_updated_since` | Find services added or updated since a given date — useful for monitoring new provision. |
 
 ## Running in Development (stdio)
 
@@ -106,9 +110,14 @@ OrukTransformer.Mcp/
 │   ├── ITaxonomyCache.cs       # Caching interface for taxonomy terms
 │   └── TaxonomyCache.cs        # TTL-based in-memory taxonomy cache
 └── Tools/
-    ├── OrukServiceSearchTool.cs  # search_services MCP tool
-    ├── OrukServiceDetailTool.cs  # get_service_detail MCP tool
-    └── OrukTaxonomyTool.cs       # list_taxonomy_terms / resolve_taxonomy_label tools
+    ├── OrukServiceSearchTool.cs       # search_services MCP tool
+    ├── OrukServiceDetailTool.cs       # get_service_detail MCP tool
+    ├── OrukTaxonomyTool.cs            # list_taxonomy_terms / resolve_taxonomy_label tools
+    ├── OrukFeedInfoTool.cs            # list_feeds MCP tool
+    ├── OrukScheduleTool.cs            # get_service_schedule MCP tool
+    ├── OrukRequiredDocumentsTool.cs   # get_required_documents MCP tool
+    ├── OrukServiceFilterTool.cs       # get_services_by_language / find_accessible_services / find_services_by_delivery_type
+    └── OrukRecentlyUpdatedTool.cs     # get_services_updated_since MCP tool
 ```
 
 ## Dependencies

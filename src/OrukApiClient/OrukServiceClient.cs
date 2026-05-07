@@ -206,6 +206,49 @@ public sealed class OrukServiceClient : IOrukServiceClient
                 return false;
         }
 
+        // Language filter
+        if (query.Language is not null)
+        {
+            var lang = query.Language;
+            var hasLanguage = service.Languages.Any(l =>
+                (l.Name?.Contains(lang, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (l.Code?.Equals(lang, StringComparison.OrdinalIgnoreCase) ?? false));
+            if (!hasLanguage) return false;
+        }
+
+        // Accessibility feature filter
+        if (query.AccessibilityFeature is not null)
+        {
+            var feature = query.AccessibilityFeature;
+            var hasFeature = service.ServiceAtLocations
+                .Select(sal => sal.Location)
+                .Where(l => l is not null)
+                .SelectMany(l => l!.Accessibility)
+                .Any(a => a.Description?.Contains(feature, StringComparison.OrdinalIgnoreCase) ?? false);
+            if (!hasFeature) return false;
+        }
+
+        // Delivery type filter (matches OrukLocation.LocationType)
+        if (query.DeliveryType is not null)
+        {
+            var type = query.DeliveryType;
+            var hasType = service.ServiceAtLocations
+                .Select(sal => sal.Location)
+                .Any(l => l?.LocationType?.Equals(type, StringComparison.OrdinalIgnoreCase) ?? false);
+            if (!hasType) return false;
+        }
+
+        // Updated since filter
+        if (query.UpdatedSince.HasValue)
+        {
+            if (string.IsNullOrWhiteSpace(service.LastModified))
+                return false;
+
+            if (!DateTimeOffset.TryParse(service.LastModified, out var modified) ||
+                modified < query.UpdatedSince.Value)
+                return false;
+        }
+
         return true;
     }
 }

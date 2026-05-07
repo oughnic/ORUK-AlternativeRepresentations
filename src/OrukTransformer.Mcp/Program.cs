@@ -60,7 +60,9 @@ builder.Services
     .WithTools<OrukTaxonomyTool>()
     .WithTools<OrukFeedInfoTool>()
     .WithTools<OrukScheduleTool>()
-    .WithTools<OrukRequiredDocumentsTool>();
+    .WithTools<OrukRequiredDocumentsTool>()
+    .WithTools<OrukServiceFilterTool>()
+    .WithTools<OrukRecentlyUpdatedTool>();
 
 var host = builder.Build();
 

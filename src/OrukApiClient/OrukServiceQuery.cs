@@ -37,4 +37,35 @@ public record OrukServiceQuery
     /// Default is 20.
     /// </summary>
     public int MaxRecords { get; init; } = 20;
+
+    // ── Phase 2 client-side filters ───────────────────────────────────────────
+
+    /// <summary>
+    /// Filter to services delivered in the given language.
+    /// Matched case-insensitively against <c>OrukLanguage.Name</c> (contains)
+    /// and <c>OrukLanguage.Code</c> (exact ISO 639 code).
+    /// </summary>
+    public string? Language { get; init; }
+
+    /// <summary>
+    /// Filter to services that have the specified accessibility feature.
+    /// Matched case-insensitively as a substring of <c>OrukAccessibility.Description</c>
+    /// on any location associated with the service.
+    /// </summary>
+    public string? AccessibilityFeature { get; init; }
+
+    /// <summary>
+    /// Filter by how the service is delivered. Matched case-insensitively against
+    /// <c>OrukLocation.LocationType</c>. Typical values: <c>physical</c>,
+    /// <c>virtual</c>, <c>postal</c>.
+    /// </summary>
+    public string? DeliveryType { get; init; }
+
+    // ── Phase 3 client-side filters ───────────────────────────────────────────
+
+    /// <summary>
+    /// Only return services whose <c>last_modified</c> date is on or after this value.
+    /// Services with no <c>last_modified</c> value are excluded when this filter is set.
+    /// </summary>
+    public DateTimeOffset? UpdatedSince { get; init; }
 }
