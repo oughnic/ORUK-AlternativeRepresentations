@@ -33,7 +33,11 @@ public sealed class OrukServiceClient : IOrukServiceClient
     {
         var noLimit = query.MaxRecords < 1;
         var remaining = noLimit ? int.MaxValue : query.MaxRecords;
-        var pageSize = noLimit ? MaxPageSize : Math.Min(query.MaxRecords, MaxPageSize);
+        // Always request the maximum page size regardless of MaxRecords.
+        // Many ORUK endpoints do not filter by the `text` parameter, so client-side
+        // keyword filtering may discard most records. Fetching in large batches
+        // minimises round-trips when filtering is heavy.
+        var pageSize = MaxPageSize;
 
         int totalPages = 1;
         int currentPage = 1;
@@ -43,8 +47,7 @@ public sealed class OrukServiceClient : IOrukServiceClient
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var requestSize = Math.Min(pageSize, remaining);
-            var url = OrukUrlBuilder.BuildServicesUrl(feedBaseUrl, query, currentPage, requestSize);
+            var url = OrukUrlBuilder.BuildServicesUrl(feedBaseUrl, query, currentPage, pageSize);
 
             OrukPage<OrukService>? page = null;
             try
@@ -176,6 +179,19 @@ public sealed class OrukServiceClient : IOrukServiceClient
     /// </summary>
     private static bool MatchesClientSideFilters(OrukService service, OrukServiceQuery query)
     {
+        // Client-side keyword fallback — applied when no taxonomy terms were resolved.
+        // Many ORUK endpoints do not implement the `text` query parameter; this ensures
+        // the keyword still filters results even if the server returned unfiltered data.
+        if (!string.IsNullOrWhiteSpace(query.Keyword) && query.TaxonomyTermIds.Count == 0)
+        {
+            var kw = query.Keyword;
+            var inName = service.Name?.Contains(kw, StringComparison.OrdinalIgnoreCase) ?? false;
+            var inDesc = service.Description?.Contains(kw, StringComparison.OrdinalIgnoreCase) ?? false;
+            var inOrg  = service.Organization?.Name?.Contains(kw, StringComparison.OrdinalIgnoreCase) ?? false;
+            if (!inName && !inDesc && !inOrg)
+                return false;
+        }
+
         // Age range
         if (query.MinimumAge.HasValue &&
             service.MaximumAge.HasValue &&
