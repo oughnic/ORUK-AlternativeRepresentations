@@ -1,0 +1,77 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using OrukApiClient;
+using OrukTransformer.Mcp;
+using OrukTransformer.Mcp.Config;
+using OrukTransformer.Mcp.Taxonomy;
+using OrukTransformer.Mcp.Tools;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// ── Logging ──────────────────────────────────────────────────────────────────
+// MCP stdio transport owns stdout for JSON-RPC. ALL log output MUST go to stderr.
+builder.Logging.AddConsole(options =>
+    options.LogToStandardErrorThreshold = LogLevel.Trace);
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
+
+// Load feed URLs from feeds.json — check alongside the executable, then the CWD.
+var feedsJsonPaths = new[]
+{
+    Path.Combine(AppContext.BaseDirectory, "feeds.json"),
+    Path.Combine(Directory.GetCurrentDirectory(), "feeds.json")
+};
+
+var feedUrls = feedsJsonPaths
+    .Select(FeedsLoader.LoadFeedUrls)
+    .FirstOrDefault(urls => urls.Count > 0) ?? [];
+
+// Register the feed URL list so tools can inject it.
+builder.Services.AddSingleton<IReadOnlyList<Uri>>(feedUrls);
+
+// ── HTTP clients (typed) ───────────────────────────────────────────────────────
+// OrukServiceClient and OrukTaxonomyClient take HttpClient in their constructor.
+builder.Services
+    .AddHttpClient<IOrukServiceClient, OrukServiceClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
+    });
+
+builder.Services
+    .AddHttpClient<IOrukTaxonomyClient, OrukTaxonomyClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
+    });
+
+// ── Application services ───────────────────────────────────────────────────────
+builder.Services.AddSingleton<ITaxonomyCache, TaxonomyCache>();
+
+// ── MCP server ────────────────────────────────────────────────────────────────
+builder.Services
+    .AddMcpServer()
+    .WithStdioServerTransport()
+    .WithTools<OrukServiceSearchTool>()
+    .WithTools<OrukServiceDetailTool>()
+    .WithTools<OrukTaxonomyTool>();
+
+var host = builder.Build();
+
+var logger = host.Services.GetRequiredService<ILogger<Program>>();
+var opts = host.Services.GetRequiredService<IOptions<McpOptions>>().Value;
+
+logger.LogInformation(
+    "ORUK MCP Server starting. {FeedCount} feed(s) configured. MaxResults={Max}, TaxonomyTtl={Ttl}min.",
+    feedUrls.Count, opts.MaxResultsPerQuery, opts.TaxonomyCacheTtlMinutes);
+
+if (feedUrls.Count == 0)
+{
+    logger.LogWarning(
+        "No feed URLs loaded. Add ORUK endpoint URLs to feeds.json in the working directory.");
+}
+
+await host.RunAsync();
