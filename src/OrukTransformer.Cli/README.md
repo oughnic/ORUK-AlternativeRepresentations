@@ -5,7 +5,7 @@ A .NET 10 command-line application that fetches a live **Open Referral UK (ORUK)
 ## Usage
 
 ```
-oruk-transformer --oruk-url <url> [--json-ld <file>] [--max-records <n>] [--verbose]
+oruk-transformer --oruk-url <url> [--json-ld <file>] [--max-records <n>] [--format json-ld] [--timeout <seconds>] [--verbose] [--log-level <level>] [--quiet]
 ```
 
 ### Options
@@ -16,12 +16,16 @@ oruk-transformer --oruk-url <url> [--json-ld <file>] [--max-records <n>] [--verb
 | `--json-ld` | file path | No | stdout | Output file for the JSON-LD; omit to write to stdout |
 | `--max-records` | int | No | `50` | Max services to retrieve; values < 1 = no limit |
 | `--verbose` | flag | No | `false` | Emit per-service VODIM field-level detail |
+| `--log-level` | string | No | `information` | Log level: `trace`, `debug`, `information`, `warning`, `error`, `critical`, `none` |
+| `--quiet` | flag | No | `false` | Equivalent to `--log-level warning` |
+| `--timeout` | int | No | `30` | Per-request HTTP timeout in seconds; values < 1 treated as `30` |
+| `--format` | string | No | `json-ld` | Output format (currently only `json-ld`) |
 | `--data-quality-report` | file path | No | — | Write an xHTML5 data-quality HTML report to this file |
 
 ### Examples
 
 ```bash
-# Write JSON-LD to stdout, VODIM summary to stderr
+# Write JSON-LD to stdout only (stdout is reserved for transformed Schema.org)
 oruk-transformer --oruk-url https://bristol.openplace.directory/o/OpenReferralService/v3/services
 
 # Write JSON-LD to a file, VODIM summary to stdout
@@ -57,7 +61,8 @@ A consolidated Schema.org `@graph` document in `application/ld+json` format, con
 
 ### VODIM Report
 
-Always printed after the transformation.  When `--json-ld` is supplied the report goes to **stdout**; otherwise it goes to **stderr** (to keep the JSON-LD output clean when piped).
+Printed after transformation only when `--json-ld` is supplied (file output mode).  
+When `--json-ld` is omitted, VODIM summary/detail is suppressed so stdout contains only Schema.org JSON-LD.
 
 **Summary (always shown):**
 
@@ -81,7 +86,16 @@ VODIM Summary — 42 service(s) transformed from https://example.org/services
 
 ### HTML Data-Quality Report (`--data-quality-report`)
 
-When `--data-quality-report <file>` is supplied, an xHTML5 data-quality report is written to the specified file in addition to the standard console VODIM output.
+When `--data-quality-report <file>` is supplied, an xHTML5 data-quality report is written to the specified file in addition to the standard console VODIM output (when enabled).
+
+## Stdout-only mode constraints
+
+When `--json-ld` is omitted:
+
+- Log level is forced to `none` (no CLI logs are emitted).
+- `--verbose` is not allowed.
+- `--log-level` / `--quiet` are not allowed.
+- VODIM console summary/detail is suppressed.
 
 The report lists every distinct ORUK field path found across all services as an `<h2>` heading.  Under each heading, a VODIM metric breakdown table and a de-duplicated list of issue messages (with occurrence counts) are shown.  Instance-specific details such as individual field values are deliberately omitted to avoid data leakage.
 
