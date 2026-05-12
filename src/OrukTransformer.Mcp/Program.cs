@@ -48,6 +48,11 @@ builder.Services
         client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
     });
 
+builder.Services
+    .AddHttpClient<IOrukOrganizationClient, OrukOrganizationClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
 // Geocoder: converts UK postcodes to lat,long before passing to the ORUK proximity
 // parameter.  Uses the free postcodes.io API (no key required).
 builder.Services
@@ -72,7 +77,8 @@ builder.Services
     .WithTools<OrukScheduleTool>()
     .WithTools<OrukRequiredDocumentsTool>()
     .WithTools<OrukServiceFilterTool>()
-    .WithTools<OrukRecentlyUpdatedTool>();
+    .WithTools<OrukRecentlyUpdatedTool>()
+    .WithTools<OrukOrganizationTool>();
 
 var host = builder.Build();
 

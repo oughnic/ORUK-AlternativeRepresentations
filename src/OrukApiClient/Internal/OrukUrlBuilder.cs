@@ -55,6 +55,27 @@ internal static class OrukUrlBuilder
         return new Uri(EnsureBase(feedBaseUrl) + $"/services/{encoded}");
     }
 
+    /// <summary>Returns the paginated /organizations URL with optional keyword filter.</summary>
+    internal static Uri BuildOrganizationsUrl(Uri feedBaseUrl, string? keyword, int page, int perPage)
+    {
+        var base_ = new Uri(EnsureBase(feedBaseUrl) + "/organizations");
+        var builder = new UriBuilder(base_);
+        var qs = System.Web.HttpUtility.ParseQueryString(builder.Query);
+        qs["page"] = page.ToString();
+        qs["per_page"] = perPage.ToString();
+        if (!string.IsNullOrWhiteSpace(keyword))
+            qs["text"] = keyword;
+        builder.Query = qs.ToString();
+        return builder.Uri;
+    }
+
+    /// <summary>Returns the /organizations/{id} URL for a single-record fetch.</summary>
+    internal static Uri BuildOrganizationByIdUrl(Uri feedBaseUrl, string organizationId)
+    {
+        var encoded = Uri.EscapeDataString(organizationId);
+        return new Uri(EnsureBase(feedBaseUrl) + $"/organizations/{encoded}");
+    }
+
     /// <summary>Returns the paginated /taxonomy_terms URL.</summary>
     internal static Uri BuildTaxonomyTermsUrl(Uri feedBaseUrl, int page, int perPage)
     {
