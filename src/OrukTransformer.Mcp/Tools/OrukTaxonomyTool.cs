@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Taxonomy;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -15,7 +16,7 @@ namespace OrukTransformer.Mcp.Tools;
 [McpServerToolType]
 public sealed class OrukTaxonomyTool(
     ITaxonomyCache taxonomyCache,
-    IReadOnlyList<Uri> feedUrls,
+    IFeedRegistry feedRegistry,
     ILogger<OrukTaxonomyTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -31,7 +32,7 @@ public sealed class OrukTaxonomyTool(
         "user's language to the correct taxonomy before searching. If feed_url is omitted, " +
         "returns terms from the first configured feed.")]
     public async Task<string> ListTaxonomyTerms(
-        [Description("The base URL of the ORUK feed to query (optional — defaults to the first configured feed).")]
+        [Description("The base URL, feed name, or alias of the ORUK feed to query (optional — defaults to the first configured feed).")]
         string? feedUrl = null,
         [Description("Optional filter: only return terms whose name or description contains this text.")]
         string? filter = null,
@@ -93,7 +94,7 @@ public sealed class OrukTaxonomyTool(
     public async Task<string> ResolveTaxonomyLabel(
         [Description("The plain-language label to look up, e.g. 'swimming lessons', 'carer support'.")]
         string label,
-        [Description("The base URL of the ORUK feed to search within (optional — defaults to first feed).")]
+        [Description("The base URL, feed name, or alias of the ORUK feed to search within (optional — defaults to first feed).")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -143,10 +144,16 @@ public sealed class OrukTaxonomyTool(
 
     private Uri? ResolveFeedUri(string? feedUrl)
     {
-        if (!string.IsNullOrWhiteSpace(feedUrl) &&
-            Uri.TryCreate(feedUrl, UriKind.Absolute, out var supplied))
-            return supplied;
+        if (!string.IsNullOrWhiteSpace(feedUrl))
+        {
+            var configured = feedRegistry.Resolve(feedUrl);
+            if (configured is not null)
+                return configured.Url;
 
-        return feedUrls.Count > 0 ? feedUrls[0] : null;
+            if (Uri.TryCreate(feedUrl, UriKind.Absolute, out var supplied))
+                return supplied;
+        }
+
+        return feedRegistry.Feeds.Count > 0 ? feedRegistry.Feeds[0].Url : null;
     }
 }

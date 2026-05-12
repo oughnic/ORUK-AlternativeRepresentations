@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Tools;
 
@@ -13,7 +14,7 @@ namespace OrukTransformer.Mcp.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class OrukFeedInfoTool(
-    IReadOnlyList<Uri> feedUrls,
+    IFeedRegistry feedRegistry,
     ILogger<OrukFeedInfoTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -29,9 +30,9 @@ public sealed class OrukFeedInfoTool(
         "or to check whether a specific region's data is available before searching.")]
     public string ListFeeds()
     {
-        logger.LogInformation("ListFeeds: returning {Count} configured feed(s).", feedUrls.Count);
+        logger.LogInformation("ListFeeds: returning {Count} configured feed(s).", feedRegistry.Feeds.Count);
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
         {
             logger.LogWarning("ListFeeds: no feeds are configured.");
             return JsonSerializer.Serialize(new
@@ -42,11 +43,13 @@ public sealed class OrukFeedInfoTool(
             }, JsonOptions);
         }
 
-        var feeds = feedUrls.Select((uri, index) => new
+        var feeds = feedRegistry.Feeds.Select((feed, index) => new
         {
             index = index + 1,
-            url = uri.ToString(),
-            host = uri.Host
+            url = feed.Url.ToString(),
+            name = feed.DisplayName,
+            host = feed.Url.Host,
+            aliases = feed.Aliases is { Count: > 0 } ? feed.Aliases : null
         }).ToList();
 
         return JsonSerializer.Serialize(new

@@ -1,4 +1,5 @@
 using OrukModels.Models;
+using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Models;
 
@@ -9,4 +10,9 @@ namespace OrukTransformer.Mcp.Models;
 /// </summary>
 internal sealed record ServiceWithOrigin(
     OrukService Service,
-    Uri FeedBaseUrl);
+    FeedDefinition Feed)
+{
+    public Uri FeedBaseUrl => Feed.Url;
+
+    public string FeedName => Feed.DisplayName;
+}

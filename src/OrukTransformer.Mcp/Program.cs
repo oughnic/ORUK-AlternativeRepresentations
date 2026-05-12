@@ -25,12 +25,12 @@ var feedsJsonPaths = new[]
     Path.Combine(Directory.GetCurrentDirectory(), "feeds.json")
 };
 
-var feedUrls = feedsJsonPaths
-    .Select(FeedsLoader.LoadFeedUrls)
-    .FirstOrDefault(urls => urls.Count > 0) ?? [];
+var feedDefinitions = feedsJsonPaths
+    .Select(FeedsLoader.LoadFeeds)
+    .FirstOrDefault(feeds => feeds.Count > 0) ?? [];
 
-// Register the feed URL list so tools can inject it.
-builder.Services.AddSingleton<IReadOnlyList<Uri>>(feedUrls);
+// Register the feed registry so tools can resolve friendly names and URLs consistently.
+builder.Services.AddSingleton<IFeedRegistry>(_ => new FeedRegistry(feedDefinitions));
 
 // ── HTTP clients (typed) ───────────────────────────────────────────────────────
 // OrukServiceClient and OrukTaxonomyClient take HttpClient in their constructor.
@@ -89,9 +89,9 @@ var opts = host.Services.GetRequiredService<IOptions<McpOptions>>().Value;
 
 logger.LogInformation(
     "ORUK MCP Server starting. {FeedCount} feed(s) configured. MaxResults={Max}, TaxonomyTtl={Ttl}min.",
-    feedUrls.Count, opts.MaxResultsPerQuery, opts.TaxonomyCacheTtlMinutes);
+    feedDefinitions.Count, opts.MaxResultsPerQuery, opts.TaxonomyCacheTtlMinutes);
 
-if (feedUrls.Count == 0)
+if (feedDefinitions.Count == 0)
 {
     logger.LogWarning(
         "No feed URLs loaded. Add ORUK endpoint URLs to feeds.json in the working directory.");

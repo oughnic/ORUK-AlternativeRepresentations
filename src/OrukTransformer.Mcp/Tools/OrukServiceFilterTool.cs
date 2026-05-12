@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
 using OrukModels.Models;
+using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 using OrukTransformer.Mcp.Taxonomy;
 
@@ -21,7 +23,7 @@ public sealed class OrukServiceFilterTool(
     IOrukServiceClient serviceClient,
     ITaxonomyCache taxonomyCache,
     IOptions<McpOptions> options,
-    IReadOnlyList<Uri> feedUrls,
+    IFeedRegistry feedRegistry,
     ILogger<OrukServiceFilterTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -45,9 +47,10 @@ public sealed class OrukServiceFilterTool(
         [Description("UK postcode or place name to search near.")]
         string? location = null,
         [Description("Search radius in kilometres when a location is given. Default is 5.")]
+        [Range(0, 50)]
         double? radiusKm = null,
-        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
-                     "If omitted, all configured feeds are searched.")]
+        [Description("Restrict results to a specific feed URL, feed name, or alias — obtained from list_feeds. " +
+                      "If omitted, all configured feeds are searched.")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -55,7 +58,7 @@ public sealed class OrukServiceFilterTool(
             "GetServicesByLanguage: language='{Language}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
             language, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
         {
             logger.LogError("GetServicesByLanguage: no ORUK feeds configured.");
             return JsonSerializer.Serialize(new { error = "No ORUK feeds are configured." });
@@ -98,9 +101,10 @@ public sealed class OrukServiceFilterTool(
         [Description("UK postcode or place name to search near.")]
         string? location = null,
         [Description("Search radius in kilometres when a location is given. Default is 5.")]
+        [Range(0, 50)]
         double? radiusKm = null,
-        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
-                     "If omitted, all configured feeds are searched.")]
+        [Description("Restrict results to a specific feed URL, feed name, or alias — obtained from list_feeds. " +
+                      "If omitted, all configured feeds are searched.")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -108,7 +112,7 @@ public sealed class OrukServiceFilterTool(
             "FindAccessibleServices: feature='{Feature}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
             accessibilityFeature, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
         {
             logger.LogError("FindAccessibleServices: no ORUK feeds configured.");
             return JsonSerializer.Serialize(new { error = "No ORUK feeds are configured." });
@@ -147,17 +151,19 @@ public sealed class OrukServiceFilterTool(
         "Particularly useful when a user cannot travel or specifically needs remote access.")]
     public async Task<string> FindServicesByDeliveryType(
         [Description("The delivery type: 'physical' (in-person), 'virtual' (online/phone), or 'postal'.")]
+        [AllowedValues("physical", "virtual", "postal")]
         string deliveryType,
         [Description("Optional keyword to further narrow results, e.g. 'counselling', 'food bank'.")]
         string? keyword = null,
         [Description("UK postcode or place name to search near (relevant for physical services).")]
         string? location = null,
         [Description("Search radius in kilometres when a location is given.")]
+        [Range(0, 50)]
         double? radiusKm = null,
         [Description("Set to true to return only free-of-charge services.")]
         bool freeOnly = false,
-        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
-                     "If omitted, all configured feeds are searched.")]
+        [Description("Restrict results to a specific feed URL, feed name, or alias — obtained from list_feeds. " +
+                      "If omitted, all configured feeds are searched.")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -165,7 +171,7 @@ public sealed class OrukServiceFilterTool(
             "FindServicesByDeliveryType: type='{Type}', keyword='{Keyword}', location='{Location}', freeOnly={FreeOnly}, feedUrl='{FeedUrl}'.",
             deliveryType, keyword ?? "(any)", location ?? "(any)", freeOnly, feedUrl ?? "(all feeds)");
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
         {
             logger.LogError("FindServicesByDeliveryType: no ORUK feeds configured.");
             return JsonSerializer.Serialize(new { error = "No ORUK feeds are configured." });
@@ -204,45 +210,29 @@ public sealed class OrukServiceFilterTool(
 
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
-    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    private List<FeedDefinition> ResolveFeedTargets(string? feedUrl)
     {
         if (string.IsNullOrWhiteSpace(feedUrl))
-            return feedUrls.ToList();
+            return feedRegistry.Feeds.ToList();
 
-        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
-        {
-            logger.LogWarning("Invalid feedUrl '{FeedUrl}' — searching all feeds.", feedUrl);
-            return feedUrls.ToList();
-        }
-
-        var normalised = NormaliseUrl(uri);
-        var match = feedUrls.Where(f => NormaliseUrl(f) == normalised).ToList();
-
-        if (match.Count == 0)
+        var match = feedRegistry.Resolve(feedUrl);
+        if (match is null)
         {
             logger.LogWarning("feedUrl '{FeedUrl}' not found in configured feeds — searching all feeds.", feedUrl);
-            return feedUrls.ToList();
+            return feedRegistry.Feeds.ToList();
         }
 
-        return match;
-    }
-
-    private static string NormaliseUrl(Uri uri)
-    {
-        var s = uri.ToString().TrimEnd('/');
-        if (s.EndsWith("/services", StringComparison.OrdinalIgnoreCase))
-            s = s[..^"/services".Length];
-        return s.ToLowerInvariant();
+        return [match];
     }
 
     private async Task<List<ServiceWithOrigin>> FanOutSearchAsync(
-        OrukServiceQuery query, List<Uri> targets, CancellationToken cancellationToken)
+        OrukServiceQuery query, List<FeedDefinition> targets, CancellationToken cancellationToken)
     {
         var maxTotal = options.Value.MaxResultsPerQuery;
         var perFeedLimit = maxTotal;
         var cappedQuery = query with { MaxRecords = perFeedLimit };
 
-        var tasks = targets.Select(async targetFeedUrl =>
+        var tasks = targets.Select(async targetFeed =>
         {
             try
             {
@@ -252,27 +242,27 @@ public sealed class OrukServiceFilterTool(
                 {
                     try
                     {
-                        termIds = await taxonomyCache.ResolveAsync(query.Keyword, targetFeedUrl, cancellationToken);
+                        termIds = await taxonomyCache.ResolveAsync(query.Keyword, targetFeed.Url, cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex,
                             "Taxonomy resolution failed for '{Keyword}' against {FeedUrl}.",
-                            query.Keyword, targetFeedUrl);
+                            query.Keyword, targetFeed.Url);
                     }
                 }
 
                 var resolvedQuery = cappedQuery with { TaxonomyTermIds = termIds };
                 var feedResults = new List<ServiceWithOrigin>();
 
-                await foreach (var service in serviceClient.SearchAsync(targetFeedUrl, resolvedQuery, cancellationToken))
-                    feedResults.Add(new ServiceWithOrigin(service, targetFeedUrl));
+                await foreach (var service in serviceClient.SearchAsync(targetFeed.Url, resolvedQuery, cancellationToken))
+                    feedResults.Add(new ServiceWithOrigin(service, targetFeed));
 
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeed.Url);
                 return new List<ServiceWithOrigin>();
             }
         });
@@ -310,6 +300,7 @@ public sealed class OrukServiceFilterTool(
             {
                 id = s.Id,
                 feed_url = r.FeedBaseUrl.ToString(),
+                feed_name = r.FeedName,
                 name = s.Name,
                 description = s.Description is { Length: > 0 }
                     ? (s.Description.Length > 200 ? s.Description[..200].TrimEnd() + "…" : s.Description)
