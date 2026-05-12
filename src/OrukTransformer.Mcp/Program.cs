@@ -48,6 +48,16 @@ builder.Services
         client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
     });
 
+// Geocoder: converts UK postcodes to lat,long before passing to the ORUK proximity
+// parameter.  Uses the free postcodes.io API (no key required).
+builder.Services
+    .AddHttpClient<IPostcodeGeocoder, PostcodesIoGeocoder>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(5);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OrukTransformer.Mcp/1.0");
+        client.BaseAddress = new Uri("https://api.postcodes.io/");
+    });
+
 // ── Application services ───────────────────────────────────────────────────────
 builder.Services.AddSingleton<ITaxonomyCache, TaxonomyCache>();
 
