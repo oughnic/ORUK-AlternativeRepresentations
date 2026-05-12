@@ -33,13 +33,19 @@ This project implements an MCP server using the [official C# MCP SDK](https://gi
 
 ### Configuration
 
-1. Edit `feeds.json` at the repository root to list the ORUK endpoints to query:
+1. Edit `feeds.json` at the repository root to list the ORUK endpoints to query and provide friendly names:
 
 ```json
 [
-  "https://bristol.openplace.directory/o/OpenReferralService/v3"
+  {
+    "url": "https://bristol.openplace.directory/o/OpenReferralService/v3",
+    "name": "Bristol",
+    "aliases": ["bristol"]
+  }
 ]
 ```
+
+`aliases` are optional short names that can be used in `feedUrl` parameters instead of full URLs.
 
 2. Optionally adjust `appsettings.json`:
 
@@ -105,7 +111,7 @@ OrukTransformer.Mcp/
 ├── McpOptions.cs               # Configuration options (bound from appsettings.json)
 ├── appsettings.json            # Default configuration
 ├── Config/
-│   └── FeedsLoader.cs          # Parses feeds.json into a list of feed URIs
+│   └── FeedsLoader.cs          # Parses feeds.json into feed definitions with labels/aliases
 ├── Models/
 │   └── ServiceWithOrigin.cs    # Internal record wrapping a service with its feed URL
 ├── Taxonomy/

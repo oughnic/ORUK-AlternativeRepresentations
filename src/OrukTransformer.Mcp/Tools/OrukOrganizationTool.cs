@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -22,7 +23,7 @@ public sealed class OrukOrganizationTool(
     IOrukOrganizationClient organizationClient,
     IOrukServiceClient serviceClient,
     IOptions<McpOptions> options,
-    IReadOnlyList<Uri> feedUrls,
+    IFeedRegistry feedRegistry,
     ILogger<OrukOrganizationTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -45,7 +46,7 @@ public sealed class OrukOrganizationTool(
             "e.g. 'dementia', 'foodbank', 'carers', 'Age UK', 'NHS'.")]
         string? keyword = null,
         [Description(
-            "Restrict results to a specific feed URL. " +
+            "Restrict results to a specific feed URL, feed name, or alias. " +
             "If omitted, all configured feeds are searched.")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
@@ -65,23 +66,23 @@ public sealed class OrukOrganizationTool(
         {
             try
             {
-                var results = new List<(OrukModels.Models.OrukOrganization Org, Uri Feed)>();
+                var results = new List<(OrukModels.Models.OrukOrganization Org, FeedDefinition Feed)>();
                 await foreach (var org in organizationClient.SearchAsync(
-                    feed, keyword, perFeedLimit, cancellationToken))
+                    feed.Url, keyword, perFeedLimit, cancellationToken))
                 {
                     results.Add((org, feed));
                 }
 
                 logger.LogInformation(
                     "SearchOrganisations: feed {Feed} returned {Count} organisation(s).",
-                    feed, results.Count);
+                    feed.Url, results.Count);
 
                 return results;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "SearchOrganisations: search failed for feed {Feed}. Skipping.", feed);
-                return new List<(OrukModels.Models.OrukOrganization, Uri)>();
+                logger.LogError(ex, "SearchOrganisations: search failed for feed {Feed}. Skipping.", feed.Url);
+                return new List<(OrukModels.Models.OrukOrganization, FeedDefinition)>();
             }
         });
 
@@ -106,7 +107,8 @@ public sealed class OrukOrganizationTool(
             return new
             {
                 id = org.Id,
-                feed_url = r.Item2.ToString(),
+                feed_url = r.Item2.Url.ToString(),
+                feed_name = r.Item2.DisplayName,
                 name = org.Name,
                 alternate_name = org.AlternateName,
                 description = org.Description is { Length: > 0 }
@@ -139,8 +141,8 @@ public sealed class OrukOrganizationTool(
             "the organization.id field in a service record.")]
         string organisationId,
         [Description(
-            "The feed URL the organisation belongs to — obtained from search_organisations " +
-            "or get_service_detail. Required to route the request to the correct endpoint.")]
+            "The feed URL or configured feed name the organisation belongs to — obtained from " +
+            "search_organisations or get_service_detail. Required to route the request correctly.")]
         string feedUrl,
         [Description(
             "If true, also fetches the services delivered by this organisation from the " +
@@ -153,10 +155,14 @@ public sealed class OrukOrganizationTool(
             "GetOrganisationDetail: id='{Id}', feed='{Feed}', includeServices={IncludeServices}.",
             organisationId, feedUrl, includeServices);
 
-        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var feedUri))
+        var feedUri = ResolveFeedUri(feedUrl);
+        if (feedUri is null)
         {
             logger.LogError("GetOrganisationDetail: invalid feed URL '{FeedUrl}'.", feedUrl);
-            return JsonSerializer.Serialize(new { error = $"Invalid feed URL: {feedUrl}" });
+            return JsonSerializer.Serialize(new
+            {
+                error = $"Invalid feed URL or configured feed name: {feedUrl}"
+            });
         }
 
         var org = await organizationClient.GetByIdAsync(feedUri, organisationId, cancellationToken);
@@ -249,7 +255,8 @@ public sealed class OrukOrganizationTool(
         var result = new
         {
             id = org.Id,
-            feed_url = feedUrl,
+            feed_url = feedUri.ToString(),
+            feed_name = feedRegistry.GetDisplayName(feedUri),
             name = org.Name,
             alternate_name = org.AlternateName,
             description = org.Description,
@@ -275,19 +282,32 @@ public sealed class OrukOrganizationTool(
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
 
-    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    private List<FeedDefinition> ResolveFeedTargets(string? feedUrl)
     {
         if (!string.IsNullOrWhiteSpace(feedUrl))
         {
-            if (Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
-                return [uri];
+            var resolved = feedRegistry.Resolve(feedUrl);
+            if (resolved is not null)
+                return [resolved];
 
             logger.LogWarning("SearchOrganisations: invalid feedUrl '{FeedUrl}'. Searching all feeds.", feedUrl);
         }
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
             logger.LogError("SearchOrganisations: no ORUK feeds configured.");
 
-        return feedUrls.ToList();
+        return feedRegistry.Feeds.ToList();
+    }
+
+    private Uri? ResolveFeedUri(string feedIdentifier)
+    {
+        var configured = feedRegistry.Resolve(feedIdentifier);
+        if (configured is not null)
+            return configured.Url;
+
+        if (Uri.TryCreate(feedIdentifier, UriKind.Absolute, out var supplied))
+            return supplied;
+
+        return null;
     }
 }

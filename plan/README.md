@@ -13,6 +13,7 @@ This directory contains planning and design documentation for the ORUK Alternati
 | [standards/hl7-fhir.md](standards/hl7-fhir.md) | HL7 FHIR HealthcareService resource |
 | [approach.md](approach.md) | Technical approach to building the transformation service |
 | [terminology.md](terminology.md) | Vocabulary mapping issues, FHIR Terminology Server, NuGet package assessment |
+| [epic-67-mcp-search-feed-integration.md](epic-67-mcp-search-feed-integration.md) | Plan for MCP search/feed integration work, including feed labels, aliases, and taxonomy/tool discovery |
 
 ## Goals
 

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp.Config;
 using OrukModels.Models;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -16,6 +17,7 @@ namespace OrukTransformer.Mcp.Tools;
 [McpServerToolType]
 public sealed class OrukScheduleTool(
     IOrukServiceClient serviceClient,
+    IFeedRegistry feedRegistry,
     ILogger<OrukScheduleTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -31,7 +33,7 @@ public sealed class OrukScheduleTool(
         "or whether there are evening sessions. Use the feed_url and service_id values " +
         "returned by search_services.")]
     public async Task<string> GetServiceSchedule(
-        [Description("The base URL of the ORUK feed the service was found in (returned by search_services).")]
+        [Description("The base URL or configured feed name (from list_feeds) where the service was found.")]
         string feedUrl,
         [Description("The unique service ID (returned by search_services).")]
         string serviceId,
@@ -40,10 +42,14 @@ public sealed class OrukScheduleTool(
         logger.LogInformation(
             "GetServiceSchedule: service={ServiceId}, feed={FeedUrl}.", serviceId, feedUrl);
 
-        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var feedUri))
+        var feedUri = ResolveFeedUri(feedUrl);
+        if (feedUri is null)
         {
             logger.LogWarning("GetServiceSchedule: invalid feed_url '{FeedUrl}'.", feedUrl);
-            return JsonSerializer.Serialize(new { error = "Invalid feed_url value." });
+            return JsonSerializer.Serialize(new
+            {
+                error = "Invalid feed_url value. Provide a configured feed name or absolute URL."
+            });
         }
 
         var service = await serviceClient.GetByIdAsync(feedUri, serviceId, cancellationToken);
@@ -101,11 +107,24 @@ public sealed class OrukScheduleTool(
         {
             service_id = serviceId,
             service_name = service.Name,
-            feed_url = feedUrl,
+            feed_url = feedUri.ToString(),
+            feed_name = feedRegistry.GetDisplayName(feedUri),
             has_schedule_data = hasScheduleData,
             schedule_groups = scheduleGroups.Count > 0 ? scheduleGroups : null,
             alert = service.Alert
         }, JsonOptions);
+    }
+
+    private Uri? ResolveFeedUri(string feedIdentifier)
+    {
+        var configured = feedRegistry.Resolve(feedIdentifier);
+        if (configured is not null)
+            return configured.Url;
+
+        if (Uri.TryCreate(feedIdentifier, UriKind.Absolute, out var supplied))
+            return supplied;
+
+        return null;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ internal static class FeedsLoader
     /// Attempts to load feed URLs from the specified <paramref name="feedsJsonPath"/>.
     /// Returns an empty list if the file does not exist or cannot be parsed.
     /// </summary>
-    internal static IReadOnlyList<Uri> LoadFeedUrls(string feedsJsonPath)
+    internal static IReadOnlyList<FeedDefinition> LoadFeeds(string feedsJsonPath)
     {
         if (!File.Exists(feedsJsonPath))
             return [];
@@ -30,25 +30,33 @@ internal static class FeedsLoader
                 return [];
             }
 
-            var urls = new List<Uri>();
+            var feeds = new List<FeedDefinition>();
             foreach (var element in doc.RootElement.EnumerateArray())
             {
-                var raw = element.ValueKind switch
+                var feed = element.ValueKind switch
                 {
-                    JsonValueKind.String => element.GetString(),
+                    JsonValueKind.String when Uri.TryCreate(element.GetString(), UriKind.Absolute, out var uri)
+                        => new FeedDefinition(uri),
                     JsonValueKind.Object when element.TryGetProperty("url", out var urlProp)
-                        => urlProp.GetString(),
+                        && Uri.TryCreate(urlProp.GetString(), UriKind.Absolute, out var uri)
+                        => new FeedDefinition(
+                            uri,
+                            element.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null,
+                            element.TryGetProperty("aliases", out var aliasesProp) && aliasesProp.ValueKind == JsonValueKind.Array
+                                ? aliasesProp.EnumerateArray()
+                                    .Select(alias => alias.GetString())
+                                    .Where(alias => !string.IsNullOrWhiteSpace(alias))
+                                    .Select(alias => alias!)
+                                    .ToList()
+                                : null),
                     _ => null
                 };
 
-                if (!string.IsNullOrWhiteSpace(raw) &&
-                    Uri.TryCreate(raw, UriKind.Absolute, out var uri))
-                {
-                    urls.Add(uri);
-                }
+                if (feed is not null)
+                    feeds.Add(feed);
             }
 
-            return urls.AsReadOnly();
+            return feeds.AsReadOnly();
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
@@ -57,4 +65,7 @@ internal static class FeedsLoader
             return [];
         }
     }
+
+    internal static IReadOnlyList<Uri> LoadFeedUrls(string feedsJsonPath)
+        => LoadFeeds(feedsJsonPath).Select(feed => feed.Url).ToList().AsReadOnly();
 }

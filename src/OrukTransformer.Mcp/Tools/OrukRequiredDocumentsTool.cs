@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Tools;
 
@@ -15,6 +16,7 @@ namespace OrukTransformer.Mcp.Tools;
 [McpServerToolType]
 public sealed class OrukRequiredDocumentsTool(
     IOrukServiceClient serviceClient,
+    IFeedRegistry feedRegistry,
     ILogger<OrukRequiredDocumentsTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -30,7 +32,7 @@ public sealed class OrukRequiredDocumentsTool(
         "asks 'What do I need to bring?', 'How do I apply?', or 'Am I eligible?'. " +
         "Use the feed_url and service_id values returned by search_services.")]
     public async Task<string> GetRequiredDocuments(
-        [Description("The base URL of the ORUK feed the service was found in (returned by search_services).")]
+        [Description("The base URL or configured feed name (from list_feeds) where the service was found.")]
         string feedUrl,
         [Description("The unique service ID (returned by search_services).")]
         string serviceId,
@@ -39,10 +41,14 @@ public sealed class OrukRequiredDocumentsTool(
         logger.LogInformation(
             "GetRequiredDocuments: service={ServiceId}, feed={FeedUrl}.", serviceId, feedUrl);
 
-        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var feedUri))
+        var feedUri = ResolveFeedUri(feedUrl);
+        if (feedUri is null)
         {
             logger.LogWarning("GetRequiredDocuments: invalid feed_url '{FeedUrl}'.", feedUrl);
-            return JsonSerializer.Serialize(new { error = "Invalid feed_url value." });
+            return JsonSerializer.Serialize(new
+            {
+                error = "Invalid feed_url value. Provide a configured feed name or absolute URL."
+            });
         }
 
         var service = await serviceClient.GetByIdAsync(feedUri, serviceId, cancellationToken);
@@ -105,7 +111,8 @@ public sealed class OrukRequiredDocumentsTool(
         {
             service_id = serviceId,
             service_name = service.Name,
-            feed_url = feedUrl,
+            feed_url = feedUri.ToString(),
+            feed_name = feedRegistry.GetDisplayName(feedUri),
             has_requirements_data = hasRequirementsData,
             required_documents = documents.Count > 0 ? documents : null,
             application_process = string.IsNullOrWhiteSpace(service.ApplicationProcess)
@@ -118,5 +125,17 @@ public sealed class OrukRequiredDocumentsTool(
             age_range = ageRange,
             wait_time = string.IsNullOrWhiteSpace(service.WaitTime) ? null : service.WaitTime
         }, JsonOptions);
+    }
+
+    private Uri? ResolveFeedUri(string feedIdentifier)
+    {
+        var configured = feedRegistry.Resolve(feedIdentifier);
+        if (configured is not null)
+            return configured.Url;
+
+        if (Uri.TryCreate(feedIdentifier, UriKind.Absolute, out var supplied))
+            return supplied;
+
+        return null;
     }
 }

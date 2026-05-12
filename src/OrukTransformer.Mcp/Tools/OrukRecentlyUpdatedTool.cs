@@ -1,10 +1,12 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 using OrukTransformer.Mcp.Taxonomy;
 
@@ -19,7 +21,7 @@ public sealed class OrukRecentlyUpdatedTool(
     IOrukServiceClient serviceClient,
     ITaxonomyCache taxonomyCache,
     IOptions<McpOptions> options,
-    IReadOnlyList<Uri> feedUrls,
+    IFeedRegistry feedRegistry,
     ILogger<OrukRecentlyUpdatedTool> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -39,17 +41,22 @@ public sealed class OrukRecentlyUpdatedTool(
         [Description(
             "The earliest modification date to include, in ISO 8601 format (e.g. '2025-01-01', " +
             "'2025-03-15T00:00:00Z'). Services last modified on or after this date are returned.")]
+        [DataType(DataType.DateTime)]
+        [RegularExpression(
+            @"^\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}(:\d{2}(\.\d{1,7})?)?(Z|[+\-]\d{2}:\d{2})?)?$",
+            ErrorMessage = "Use ISO 8601 date or date-time format.")]
         string sinceDate,
         [Description("Optional keyword to further narrow results, e.g. 'dementia', 'food bank'.")]
         string? keyword = null,
         [Description("UK postcode or place name to search near.")]
         string? location = null,
         [Description("Search radius in kilometres when a location is given.")]
+        [Range(0, 50)]
         double? radiusKm = null,
         [Description("Set to true to return only free-of-charge services.")]
         bool freeOnly = false,
-        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
-                     "If omitted, all configured feeds are searched.")]
+        [Description("Restrict results to a specific feed URL, feed name, or alias — obtained from list_feeds. " +
+                      "If omitted, all configured feeds are searched.")]
         string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -57,7 +64,7 @@ public sealed class OrukRecentlyUpdatedTool(
             "GetServicesUpdatedSince: since='{Since}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
             sinceDate, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
-        if (feedUrls.Count == 0)
+        if (feedRegistry.Feeds.Count == 0)
         {
             logger.LogError("GetServicesUpdatedSince: no ORUK feeds configured.");
             return JsonSerializer.Serialize(new { error = "No ORUK feeds are configured." });
@@ -76,7 +83,7 @@ public sealed class OrukRecentlyUpdatedTool(
         var targets = ResolveFeedTargets(feedUrl);
         var perFeedLimit = maxTotal;
 
-        var tasks = targets.Select(async targetFeedUrl =>
+        var tasks = targets.Select(async targetFeed =>
         {
             try
             {
@@ -85,13 +92,13 @@ public sealed class OrukRecentlyUpdatedTool(
                 {
                     try
                     {
-                        termIds = await taxonomyCache.ResolveAsync(keyword, targetFeedUrl, cancellationToken);
+                        termIds = await taxonomyCache.ResolveAsync(keyword, targetFeed.Url, cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex,
                             "Taxonomy resolution failed for '{Keyword}' against {FeedUrl}.",
-                            keyword, targetFeedUrl);
+                            keyword, targetFeed.Url);
                     }
                 }
 
@@ -109,18 +116,18 @@ public sealed class OrukRecentlyUpdatedTool(
                 };
 
                 var feedResults = new List<ServiceWithOrigin>();
-                await foreach (var service in serviceClient.SearchAsync(targetFeedUrl, query, cancellationToken))
-                    feedResults.Add(new ServiceWithOrigin(service, targetFeedUrl));
+                await foreach (var service in serviceClient.SearchAsync(targetFeed.Url, query, cancellationToken))
+                    feedResults.Add(new ServiceWithOrigin(service, targetFeed));
 
                 logger.LogInformation(
                     "GetServicesUpdatedSince: feed {FeedUrl} returned {Count} result(s) updated since {Since}.",
-                    targetFeedUrl, feedResults.Count, sinceDate);
+                    targetFeed.Url, feedResults.Count, sinceDate);
 
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeed.Url);
                 return new List<ServiceWithOrigin>();
             }
         });
@@ -151,6 +158,7 @@ public sealed class OrukRecentlyUpdatedTool(
             {
                 id = s.Id,
                 feed_url = r.FeedBaseUrl.ToString(),
+                feed_name = r.FeedName,
                 name = s.Name,
                 description = s.Description is { Length: > 0 }
                     ? (s.Description.Length > 200 ? s.Description[..200].TrimEnd() + "…" : s.Description)
@@ -182,37 +190,21 @@ public sealed class OrukRecentlyUpdatedTool(
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    private List<FeedDefinition> ResolveFeedTargets(string? feedUrl)
     {
         if (string.IsNullOrWhiteSpace(feedUrl))
-            return feedUrls.ToList();
+            return feedRegistry.Feeds.ToList();
 
-        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
-        {
-            logger.LogWarning(
-                "GetServicesUpdatedSince: invalid feedUrl '{FeedUrl}' — searching all feeds.", feedUrl);
-            return feedUrls.ToList();
-        }
+        var match = feedRegistry.Resolve(feedUrl);
 
-        var normalised = NormaliseUrl(uri);
-        var match = feedUrls.Where(f => NormaliseUrl(f) == normalised).ToList();
-
-        if (match.Count == 0)
+        if (match is null)
         {
             logger.LogWarning(
                 "GetServicesUpdatedSince: feedUrl '{FeedUrl}' not in configured feeds — searching all feeds.",
                 feedUrl);
-            return feedUrls.ToList();
+            return feedRegistry.Feeds.ToList();
         }
 
-        return match;
-    }
-
-    private static string NormaliseUrl(Uri uri)
-    {
-        var s = uri.ToString().TrimEnd('/');
-        if (s.EndsWith("/services", StringComparison.OrdinalIgnoreCase))
-            s = s[..^"/services".Length];
-        return s.ToLowerInvariant();
+        return [match];
     }
 }
