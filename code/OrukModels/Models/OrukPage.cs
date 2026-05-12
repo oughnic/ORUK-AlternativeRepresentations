@@ -31,4 +31,25 @@ public record OrukPage<T>
 
     [JsonPropertyName("contents")]
     public IReadOnlyList<T> Contents { get; init; } = [];
+
+    // ── RPDE (Realtime Paged Data Exchange) support ──────────────────────────────
+
+    /// <summary>
+    /// URL of the next page in RPDE feeds (snake_case variant used by Open Sessions
+    /// and other RPDE-compliant ORUK publishers). When set, callers should follow
+    /// this URL rather than incrementing the page number.
+    /// </summary>
+    [JsonPropertyName("next_url")]
+    public string? NextUrlSnakeCase { get; init; }
+
+    /// <summary>RPDE <c>next</c> link — used when the feed publishes the cursor as "next".</summary>
+    [JsonPropertyName("next")]
+    public string? NextUrlNext { get; init; }
+
+    /// <summary>
+    /// Resolved next-page URL, preferring <c>next_url</c> over <c>next</c>.
+    /// Returns <see langword="null"/> when neither RPDE field is present (standard pagination).
+    /// </summary>
+    [JsonIgnore]
+    public string? NextUrl => NextUrlSnakeCase ?? NextUrlNext;
 }

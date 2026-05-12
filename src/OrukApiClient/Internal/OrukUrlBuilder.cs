@@ -11,7 +11,22 @@ internal static class OrukUrlBuilder
     /// Returns the /services list URL, appending pagination and keyword parameters
     /// derived from the given query.
     /// </summary>
-    internal static Uri BuildServicesUrl(Uri feedBaseUrl, OrukServiceQuery query, int page, int perPage)
+    /// <param name="feedBaseUrl">Base URL of the ORUK feed.</param>
+    /// <param name="query">Query parameters.</param>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="perPage">Page size.</param>
+    /// <param name="resolvedProximity">
+    /// Pre-geocoded <c>latitude,longitude</c> string to pass as the <c>proximity</c>
+    /// parameter.  When <see langword="null"/> the proximity is omitted, even if
+    /// <see cref="OrukServiceQuery.Proximity"/> is set (because the raw postcode
+    /// string is not a valid value for the ORUK <c>proximity</c> parameter).
+    /// </param>
+    internal static Uri BuildServicesUrl(
+        Uri feedBaseUrl,
+        OrukServiceQuery query,
+        int page,
+        int perPage,
+        string? resolvedProximity = null)
     {
         var baseServices = new Uri(EnsureBase(feedBaseUrl) + "/services");
         var builder = new UriBuilder(baseServices);
@@ -23,10 +38,10 @@ internal static class OrukUrlBuilder
         if (!string.IsNullOrWhiteSpace(query.Keyword))
             qs["text"] = query.Keyword;
 
-        if (!string.IsNullOrWhiteSpace(query.Proximity))
-            qs["proximity"] = query.Proximity;
+        if (!string.IsNullOrWhiteSpace(resolvedProximity))
+            qs["proximity"] = resolvedProximity;
 
-        if (query.RadiusKm.HasValue)
+        if (query.RadiusKm.HasValue && !string.IsNullOrWhiteSpace(resolvedProximity))
             qs["radius"] = query.RadiusKm.Value.ToString("F1", CultureInfo.InvariantCulture);
 
         builder.Query = qs.ToString();

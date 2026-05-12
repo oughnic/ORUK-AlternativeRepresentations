@@ -46,11 +46,14 @@ public sealed class OrukServiceFilterTool(
         string? location = null,
         [Description("Search radius in kilometres when a location is given. Default is 5.")]
         double? radiusKm = null,
+        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
+                     "If omitted, all configured feeds are searched.")]
+        string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
-            "GetServicesByLanguage: language='{Language}', keyword='{Keyword}', location='{Location}'.",
-            language, keyword ?? "(any)", location ?? "(any)");
+            "GetServicesByLanguage: language='{Language}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
+            language, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
         if (feedUrls.Count == 0)
         {
@@ -67,7 +70,8 @@ public sealed class OrukServiceFilterTool(
             MaxRecords = options.Value.MaxResultsPerQuery
         };
 
-        var results = await FanOutSearchAsync(query, cancellationToken);
+        var targets = ResolveFeedTargets(feedUrl);
+        var results = await FanOutSearchAsync(query, targets, cancellationToken);
 
         logger.LogInformation(
             "GetServicesByLanguage: '{Language}' returned {Count} result(s).", language, results.Count);
@@ -95,11 +99,14 @@ public sealed class OrukServiceFilterTool(
         string? location = null,
         [Description("Search radius in kilometres when a location is given. Default is 5.")]
         double? radiusKm = null,
+        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
+                     "If omitted, all configured feeds are searched.")]
+        string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
-            "FindAccessibleServices: feature='{Feature}', keyword='{Keyword}', location='{Location}'.",
-            accessibilityFeature, keyword ?? "(any)", location ?? "(any)");
+            "FindAccessibleServices: feature='{Feature}', keyword='{Keyword}', location='{Location}', feedUrl='{FeedUrl}'.",
+            accessibilityFeature, keyword ?? "(any)", location ?? "(any)", feedUrl ?? "(all feeds)");
 
         if (feedUrls.Count == 0)
         {
@@ -116,7 +123,8 @@ public sealed class OrukServiceFilterTool(
             MaxRecords = options.Value.MaxResultsPerQuery
         };
 
-        var results = await FanOutSearchAsync(query, cancellationToken);
+        var targets = ResolveFeedTargets(feedUrl);
+        var results = await FanOutSearchAsync(query, targets, cancellationToken);
 
         logger.LogInformation(
             "FindAccessibleServices: '{Feature}' returned {Count} result(s).",
@@ -148,11 +156,14 @@ public sealed class OrukServiceFilterTool(
         double? radiusKm = null,
         [Description("Set to true to return only free-of-charge services.")]
         bool freeOnly = false,
+        [Description("Restrict results to a specific feed URL — obtained from list_feeds. " +
+                     "If omitted, all configured feeds are searched.")]
+        string? feedUrl = null,
         CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
-            "FindServicesByDeliveryType: type='{Type}', keyword='{Keyword}', location='{Location}', freeOnly={FreeOnly}.",
-            deliveryType, keyword ?? "(any)", location ?? "(any)", freeOnly);
+            "FindServicesByDeliveryType: type='{Type}', keyword='{Keyword}', location='{Location}', freeOnly={FreeOnly}, feedUrl='{FeedUrl}'.",
+            deliveryType, keyword ?? "(any)", location ?? "(any)", freeOnly, feedUrl ?? "(all feeds)");
 
         if (feedUrls.Count == 0)
         {
@@ -178,7 +189,8 @@ public sealed class OrukServiceFilterTool(
             MaxRecords = options.Value.MaxResultsPerQuery
         };
 
-        var results = await FanOutSearchAsync(query, cancellationToken);
+        var targets = ResolveFeedTargets(feedUrl);
+        var results = await FanOutSearchAsync(query, targets, cancellationToken);
 
         logger.LogInformation(
             "FindServicesByDeliveryType: '{Type}' returned {Count} result(s).", deliveryType, results.Count);
@@ -192,14 +204,45 @@ public sealed class OrukServiceFilterTool(
 
     // ── Shared helpers ────────────────────────────────────────────────────────────
 
+    private List<Uri> ResolveFeedTargets(string? feedUrl)
+    {
+        if (string.IsNullOrWhiteSpace(feedUrl))
+            return feedUrls.ToList();
+
+        if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri))
+        {
+            logger.LogWarning("Invalid feedUrl '{FeedUrl}' — searching all feeds.", feedUrl);
+            return feedUrls.ToList();
+        }
+
+        var normalised = NormaliseUrl(uri);
+        var match = feedUrls.Where(f => NormaliseUrl(f) == normalised).ToList();
+
+        if (match.Count == 0)
+        {
+            logger.LogWarning("feedUrl '{FeedUrl}' not found in configured feeds — searching all feeds.", feedUrl);
+            return feedUrls.ToList();
+        }
+
+        return match;
+    }
+
+    private static string NormaliseUrl(Uri uri)
+    {
+        var s = uri.ToString().TrimEnd('/');
+        if (s.EndsWith("/services", StringComparison.OrdinalIgnoreCase))
+            s = s[..^"/services".Length];
+        return s.ToLowerInvariant();
+    }
+
     private async Task<List<ServiceWithOrigin>> FanOutSearchAsync(
-        OrukServiceQuery query, CancellationToken cancellationToken)
+        OrukServiceQuery query, List<Uri> targets, CancellationToken cancellationToken)
     {
         var maxTotal = options.Value.MaxResultsPerQuery;
-        var perFeedLimit = Math.Max(1, (int)Math.Ceiling((double)maxTotal / feedUrls.Count));
+        var perFeedLimit = maxTotal;
         var cappedQuery = query with { MaxRecords = perFeedLimit };
 
-        var tasks = feedUrls.Select(async feedUrl =>
+        var tasks = targets.Select(async targetFeedUrl =>
         {
             try
             {
@@ -209,27 +252,27 @@ public sealed class OrukServiceFilterTool(
                 {
                     try
                     {
-                        termIds = await taxonomyCache.ResolveAsync(query.Keyword, feedUrl, cancellationToken);
+                        termIds = await taxonomyCache.ResolveAsync(query.Keyword, targetFeedUrl, cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex,
                             "Taxonomy resolution failed for '{Keyword}' against {FeedUrl}.",
-                            query.Keyword, feedUrl);
+                            query.Keyword, targetFeedUrl);
                     }
                 }
 
                 var resolvedQuery = cappedQuery with { TaxonomyTermIds = termIds };
                 var feedResults = new List<ServiceWithOrigin>();
 
-                await foreach (var service in serviceClient.SearchAsync(feedUrl, resolvedQuery, cancellationToken))
-                    feedResults.Add(new ServiceWithOrigin(service, feedUrl));
+                await foreach (var service in serviceClient.SearchAsync(targetFeedUrl, resolvedQuery, cancellationToken))
+                    feedResults.Add(new ServiceWithOrigin(service, targetFeedUrl));
 
                 return feedResults;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", feedUrl);
+                logger.LogError(ex, "Search failed for feed {FeedUrl}. Skipping.", targetFeedUrl);
                 return new List<ServiceWithOrigin>();
             }
         });
