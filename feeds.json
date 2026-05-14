@@ -1,0 +1,28 @@
+[
+  {
+    "url": "https://bristol.openplace.directory/o/OpenReferralService/v3",
+    "name": "Bristol",
+    "aliases": [ "bristol" ]
+  },
+  {
+    "url": "https://dorset.localplacedirectory.org.uk/aggregator/services",
+    "name": "Dorset",
+    "aliases": ["dorset"]
+  },
+
+  {
+    "url": "https://northlincs.openplace.directory/o/OpenReferralService/v3",
+    "name": "North Lincolnshire",
+    "aliases": ["northlincs", "north-lincs", "northlincolnshire"]
+  },
+  {
+    "url": "https://shropshire.openplace.directory/o/OpenReferralService/v3",
+    "name": "Shropshire",
+    "aliases": ["shropshire"]
+  },
+  {
+    "url": "https://opensessions.io/api/rpde/OpenReferralFeed/",
+    "name": "Open Sessions (OpenActive)",
+    "aliases": ["opensessions", "open-sessions", "openactive"]
+  }
+]

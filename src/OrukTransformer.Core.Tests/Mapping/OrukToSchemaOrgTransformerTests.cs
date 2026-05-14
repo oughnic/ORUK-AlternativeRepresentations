@@ -585,6 +585,95 @@ public class OrukToSchemaOrgTransformerTests
         Assert.Equal("cy", node.AvailableLanguage[0].Identifier);
     }
 
+    [Fact]
+    public void Transform_InterpretationServices_UsedAsFallback_WhenNoStructuredLanguages()
+    {
+        // Issue #33: fallback should produce a Language node with free-text name.
+        var service = MinimalService();
+        service.InterpretationServices = "British Sign Language";
+        var result = _sut.Transform(service, _opts);
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+
+        Assert.Single(node.AvailableLanguage!);
+        Assert.Equal("British Sign Language", node.AvailableLanguage![0].Name);
+        Assert.Null(node.AvailableLanguage[0].Identifier);
+
+        var rec = FindRecord(result.Report, "interpretation_services");
+        Assert.NotNull(rec);
+        Assert.Equal(VodimClassification.Other, rec!.Classification);
+        Assert.Equal("British Sign Language", rec.MappedValue);
+    }
+
+    [Fact]
+    public void Transform_InterpretationServices_SupersededByStructuredLanguages()
+    {
+        // Issue #13: VODIM must reflect that interpretation_services was NOT used when
+        // structured languages exist; classification must NOT be Valid/Other with mapped output.
+        var service = MinimalService();
+        service.InterpretationServices = "Some free-text languages";
+        service.Languages.Add(new OrukLanguage { Id = "lang-1", Name = "Welsh", Code = "cy" });
+        var result = _sut.Transform(service, _opts);
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+
+        // Only the structured language appears in the output.
+        Assert.Single(node.AvailableLanguage!);
+        Assert.Equal("Welsh", node.AvailableLanguage![0].Name);
+
+        // VODIM must show Other (present but not used) with null mapped value.
+        var rec = FindRecord(result.Report, "interpretation_services");
+        Assert.NotNull(rec);
+        Assert.Equal(VodimClassification.Other, rec!.Classification);
+        Assert.Null(rec.MappedValue);
+        Assert.Contains("Superseded", rec.Note ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Transform_InterpretationServices_HtmlOnlyContent_RecordedInvalid()
+    {
+        // Issue #13: HTML-only interpretation_services should not produce an empty Language node.
+        var service = MinimalService();
+        service.InterpretationServices = "<p></p>";
+        var result = _sut.Transform(service, _opts);
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+
+        Assert.Null(node.AvailableLanguage);
+
+        var rec = FindRecord(result.Report, "interpretation_services");
+        Assert.NotNull(rec);
+        Assert.Equal(VodimClassification.Invalid, rec!.Classification);
+        Assert.Null(rec.MappedValue);
+    }
+
+    [Fact]
+    public void Transform_InterpretationServices_HtmlStripped_UsedAsFallback()
+    {
+        // HTML in interpretation_services should be stripped before becoming the Language name.
+        var service = MinimalService();
+        service.InterpretationServices = "<p>British Sign Language</p>";
+        var result = _sut.Transform(service, _opts);
+        var node = result.Document.Graph.OfType<SchemaOrgGovernmentService>().Single();
+
+        Assert.Single(node.AvailableLanguage!);
+        Assert.Equal("British Sign Language", node.AvailableLanguage![0].Name);
+
+        var rec = FindRecord(result.Report, "interpretation_services");
+        Assert.NotNull(rec);
+        Assert.Equal(VodimClassification.Other, rec!.Classification);
+        Assert.Contains("HTML markup stripped", rec.Note ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Transform_InterpretationServices_Null_RecordedMissing()
+    {
+        // Absent interpretation_services should produce a Missing VODIM entry.
+        var service = MinimalService();
+        var result = _sut.Transform(service, _opts);
+
+        var rec = FindRecord(result.Report, "interpretation_services");
+        Assert.NotNull(rec);
+        Assert.Equal(VodimClassification.Missing, rec!.Classification);
+    }
+
     // ── GeoCoordinates ────────────────────────────────────────────────────────────
 
     [Fact]

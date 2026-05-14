@@ -1,7 +1,8 @@
-using System.Net.Http.Json;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using OrukModels.Models;
+using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace OrukTransformer.Cli.Fetching;
 
@@ -59,44 +60,132 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    if (firstPage)
+                    var statusCode = (int)response.StatusCode;
+                    var reasonPhrase = response.ReasonPhrase ?? "Unknown";
+
+                    // Log all HTTP errors with appropriate severity
+                    if (statusCode == 429)
                     {
                         _logger.LogError(
-                            "ORUK endpoint returned {StatusCode} for URL {Url}. Aborting fetch.",
-                            (int)response.StatusCode, url);
+                            "API rate limiting detected: HTTP {StatusCode} ({ReasonPhrase}) for page {Page} at {Url}. " +
+                            "The endpoint may be throttling requests.",
+                            statusCode, reasonPhrase, currentPage, url);
+                    }
+                    else if (statusCode >= 400 && statusCode < 500)
+                    {
+                        _logger.LogError(
+                            "Client error: HTTP {StatusCode} ({ReasonPhrase}) for page {Page} at {Url}. " +
+                            "This may indicate an authentication, authorization, or request format issue.",
+                            statusCode, reasonPhrase, currentPage, url);
+                    }
+                    else if (statusCode >= 500)
+                    {
+                        _logger.LogError(
+                            "Server error: HTTP {StatusCode} ({ReasonPhrase}) for page {Page} at {Url}. " +
+                            "The endpoint may be experiencing issues.",
+                            statusCode, reasonPhrase, currentPage, url);
+                    }
+                    else
+                    {
+                        _logger.LogError(
+                            "HTTP error: {StatusCode} ({ReasonPhrase}) for page {Page} at {Url}.",
+                            statusCode, reasonPhrase, currentPage, url);
+                    }
+
+                    if (firstPage)
+                    {
+                        _logger.LogError("Fatal: First page request failed. Aborting fetch.");
                         yield break;
                     }
 
-                    _logger.LogWarning(
-                        "ORUK endpoint returned {StatusCode} for page {Page} at {Url}. Skipping page.",
-                        (int)response.StatusCode, currentPage, url);
+                    _logger.LogWarning("Skipping page {Page} and continuing with next page.", currentPage);
                     currentPage++;
                     continue;
                 }
 
-                page = await response.Content.ReadFromJsonAsync<OrukPage<OrukService>>(
-                    cancellationToken: cancellationToken);
+                // Buffer the response to allow re-reading if the first
+                // deserialization attempt fails (avoids allocating a string on
+                // the happy path).
+                await response.Content.LoadIntoBufferAsync(cancellationToken);
+
+                try
+                {
+                    page = await response.Content.ReadFromJsonAsync<OrukPage<OrukService>>(
+                        cancellationToken: cancellationToken);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogError(ex, 
+                        "JSON deserialization failed for page {Page} from {Url}. Attempting fallback with case-insensitive options.", 
+                        currentPage, url);
+
+                    // Fallback: read the buffered content as a string and retry
+                    // with case-insensitive property matching.
+                    string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                    try
+                    {
+                        var fallbackOptions = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        };
+                        page = JsonSerializer.Deserialize<OrukPage<OrukService>>(responseBody, fallbackOptions);
+
+                        if (page is not null)
+                        {
+                            _logger.LogInformation(
+                                "Fallback deserialization succeeded for page {Page} from {Url}.", 
+                                currentPage, url);
+                        }
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        _logger.LogError(fallbackEx, 
+                            "Fallback deserialization also failed for page {Page} from {Url}. Response body length: {BodyLength}", 
+                            currentPage, url, responseBody.Length);
+                        throw;
+                    }
+                }
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
                                                                     or System.Text.Json.JsonException)
             {
+                bool isTimeout = ex is TaskCanceledException tce
+                    && tce.CancellationToken != cancellationToken;
+
                 if (firstPage)
                 {
-                    _logger.LogError(ex,
-                        "Fatal error fetching first page from {Url}. Aborting.", url);
+                    if (isTimeout)
+                        _logger.LogError(
+                            "Request timed out fetching first page from {Url}. " +
+                            "Consider increasing the timeout with --timeout.",
+                            url);
+                    else
+                        _logger.LogError(ex,
+                            "Fatal error fetching first page from {Url}. Aborting.", url);
                     yield break;
                 }
 
-                _logger.LogWarning(ex,
-                    "Error fetching or deserialising page {Page} from {Url}. Skipping page.",
-                    currentPage, url);
+                if (isTimeout)
+                    _logger.LogWarning(
+                        "Request timed out fetching page {Page} from {Url}. " +
+                        "Consider increasing the timeout with --timeout.",
+                        currentPage, url);
+                else
+                    _logger.LogWarning(ex,
+                        "Error fetching or deserialising page {Page} from {Url}. Skipping page.",
+                        currentPage, url);
+
                 currentPage++;
                 continue;
             }
 
             if (page is null || page.Contents.Count == 0)
             {
-                _logger.LogDebug("Page {Page} returned no contents. Stopping.", currentPage);
+                _logger.LogWarning(
+                    "Page {Page} returned no contents (page is null: {IsNull}, page size requested: {RequestSize}). " +
+                    "Stopping pagination. Total services yielded so far: {TotalYielded}.",
+                    currentPage, page is null, requestSize, 
+                    noLimit ? int.MaxValue - remaining : maxRecords - remaining);
                 yield break;
             }
 
@@ -105,10 +194,14 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
             {
                 totalPages = Math.Max(page.TotalPages, 1);
                 firstPage = false;
-                _logger.LogDebug(
-                    "ORUK endpoint reports {TotalItems} total items across {TotalPages} pages.",
-                    page.TotalItems, page.TotalPages);
+                _logger.LogInformation(
+                    "ORUK endpoint reports {TotalItems} total items across {TotalPages} pages (page size: {PageSize}).",
+                    page.TotalItems, page.TotalPages, pageSize);
             }
+
+            _logger.LogInformation(
+                "Successfully fetched page {CurrentPage}/{TotalPages} with {ItemCount} services from {Url}.",
+                currentPage, totalPages, page.Contents.Count, url);
 
             foreach (var service in page.Contents)
             {
@@ -119,6 +212,12 @@ public sealed class OrukFeedPageFetcher : IOrukFeedPageFetcher
 
             currentPage++;
         }
+
+        // Log completion summary
+        var totalFetched = noLimit ? int.MaxValue - remaining : maxRecords - remaining;
+        _logger.LogInformation(
+            "Pagination completed. Fetched {TotalFetched} services across {PagesFetched} pages from {Url}.",
+            totalFetched, currentPage - 1, endpointUrl);
     }
 
     private static Uri BuildPageUrl(Uri baseUrl, int page, int perPage)

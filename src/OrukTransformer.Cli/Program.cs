@@ -42,6 +42,35 @@ var dataQualityReportOption = new Option<FileInfo?>("--data-quality-report")
     DefaultValueFactory = _ => null
 };
 
+var logLevelOption = new Option<string>("--log-level")
+{
+    Description = "Minimum log level for console output. " +
+                  "Valid values: trace, debug, information, warning, error, critical, none. " +
+                  "Defaults to 'information'.",
+    DefaultValueFactory = _ => "information"
+};
+
+var quietOption = new Option<bool>("--quiet")
+{
+    Description = "Suppress informational log output (equivalent to --log-level warning). " +
+                  "VODIM summary is always written regardless of this flag.",
+    DefaultValueFactory = _ => false
+};
+
+var timeoutOption = new Option<int>("--timeout")
+{
+    Description = "HTTP request timeout in seconds for each page fetch. " +
+                  "Defaults to 30. Values less than 1 are treated as 30.",
+    DefaultValueFactory = _ => 30
+};
+
+var formatOption = new Option<string>("--format")
+{
+    Description = "Output format. Currently only 'json-ld' is supported. " +
+                  "Defaults to 'json-ld'.",
+    DefaultValueFactory = _ => "json-ld"
+};
+
 // ── Root command ──────────────────────────────────────────────────────────────
 
 var rootCommand = new RootCommand(
@@ -52,7 +81,11 @@ var rootCommand = new RootCommand(
     jsonLdOption,
     maxRecordsOption,
     verboseOption,
-    dataQualityReportOption
+    dataQualityReportOption,
+    logLevelOption,
+    quietOption,
+    timeoutOption,
+    formatOption
 };
 
 rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
@@ -68,12 +101,60 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     var maxRecords = parseResult.GetValue(maxRecordsOption);
     var verbose = parseResult.GetValue(verboseOption);
     var dataQualityReport = parseResult.GetValue(dataQualityReportOption);
+    var logLevelRaw = parseResult.GetValue(logLevelOption)!;
+    var quiet = parseResult.GetValue(quietOption);
+    var timeoutSeconds = parseResult.GetValue(timeoutOption);
+    var format = parseResult.GetValue(formatOption)!;
+    var writingJsonToStdout = jsonLd is null;
+    var logLevelProvided = WasOptionProvided(parseResult, "--log-level");
+    var quietProvided = WasOptionProvided(parseResult, "--quiet");
+
+    // Validate --format
+    if (!string.Equals(format, "json-ld", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            $"Error: '--format' value '{format}' is not supported. Only 'json-ld' is currently available.");
+        Environment.Exit(1);
+        return;
+    }
+
+    // Validate stdout mode constraints: when JSON-LD is written to stdout we
+    // keep stdout reserved for transformed Schema.org only.
+    var optionConflictError = CliOutputModePolicy.ValidateForOutputMode(
+        writingJsonToStdout,
+        verbose,
+        logLevelProvided,
+        quietProvided);
+    if (optionConflictError is not null)
+    {
+        Console.Error.WriteLine($"Error: {optionConflictError}");
+        Environment.Exit(1);
+        return;
+    }
+
+    if (!writingJsonToStdout
+        && !quiet
+        && !CliOutputModePolicy.TryParseLogLevel(logLevelRaw, out _))
+    {
+        Console.Error.WriteLine(
+            $"Error: '--log-level' value '{logLevelRaw}' is invalid. " +
+            "Valid values are: trace, debug, information, warning, error, critical, none.");
+        Environment.Exit(1);
+        return;
+    }
+
+    // ── Resolve log level ─────────────────────────────────────────────────────
+
+    var logLevel = CliOutputModePolicy.ResolveEffectiveLogLevel(
+        writingJsonToStdout,
+        quiet,
+        logLevelRaw);
 
     // ── HTTP client ───────────────────────────────────────────────────────────
 
     using var httpClient = new HttpClient
     {
-        Timeout = TimeSpan.FromSeconds(30)
+        Timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 30)
     };
     httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
         "OrukTransformer.Cli/1.0 (+https://github.com/iStandUK/ORUK-AlternativeRepresentations)");
@@ -81,7 +162,7 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
     // ── Logging ───────────────────────────────────────────────────────────────
 
     using var loggerFactory = LoggerFactory.Create(builder =>
-        builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        builder.AddConsole().SetMinimumLevel(logLevel));
 
     // ── Services ──────────────────────────────────────────────────────────────
 
@@ -110,3 +191,10 @@ rootCommand.SetAction(async (ParseResult parseResult, CancellationToken cancella
 
 var result = rootCommand.Parse(args);
 return await result.InvokeAsync();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static bool WasOptionProvided(ParseResult parseResult, string longAlias) =>
+    parseResult.Tokens.Any(t =>
+        string.Equals(t.Value, longAlias, StringComparison.OrdinalIgnoreCase)
+        || t.Value.StartsWith($"{longAlias}=", StringComparison.OrdinalIgnoreCase));
