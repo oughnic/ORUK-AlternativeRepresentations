@@ -6,7 +6,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes thirteen tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
-Service and organisation narrative fields are normalised to plain text before being returned (HTML markup stripped and entities decoded) so MCP responses remain readable without extra post-processing by the calling agent.
+Service and organisation narrative fields are normalised to plain text before being returned (HTML markup stripped, entities decoded, and literal `\u003C...\u003E` style escapes normalised) so MCP responses remain readable without extra post-processing by the calling agent.
 
 ## MCP Tools
 

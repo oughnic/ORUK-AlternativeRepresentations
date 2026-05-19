@@ -9,6 +9,9 @@ namespace OrukTransformer.Mcp;
 /// </summary>
 public static partial class PlainTextSanitizer
 {
+    [GeneratedRegex(@"\\+u([0-9A-Fa-f]{4})")]
+    private static partial Regex UnicodeEscapePattern();
+
     [GeneratedRegex(@"<!--[\s\S]*?-->", RegexOptions.IgnoreCase)]
     private static partial Regex HtmlCommentPattern();
 
@@ -26,7 +29,10 @@ public static partial class PlainTextSanitizer
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
-        var text = DecodeEntities(value, maxPasses: 2);
+        // Some feeds contain HTML text pre-escaped as literal \u003C...\u003E
+        // sequences in the data value itself. Decode those first.
+        var text = DecodeUnicodeEscapes(value, maxPasses: 2);
+        text = DecodeEntities(text, maxPasses: 2);
 
         if (HtmlCommentPattern().IsMatch(text))
             text = HtmlCommentPattern().Replace(text, " ");
@@ -62,6 +68,26 @@ public static partial class PlainTextSanitizer
             var decoded = WebUtility.HtmlDecode(text);
             if (string.Equals(decoded, text, StringComparison.Ordinal))
                 break;
+            text = decoded;
+        }
+
+        return text;
+    }
+
+    private static string DecodeUnicodeEscapes(string input, int maxPasses)
+    {
+        var text = input;
+        for (var i = 0; i < maxPasses && text.Contains(@"\u", StringComparison.Ordinal); i++)
+        {
+            var decoded = UnicodeEscapePattern().Replace(text, static m =>
+            {
+                var codePoint = Convert.ToInt32(m.Groups[1].Value, 16);
+                return ((char)codePoint).ToString();
+            });
+
+            if (string.Equals(decoded, text, StringComparison.Ordinal))
+                break;
+
             text = decoded;
         }
 
