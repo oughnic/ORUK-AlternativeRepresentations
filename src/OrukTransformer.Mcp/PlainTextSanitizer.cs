@@ -9,6 +9,9 @@ namespace OrukTransformer.Mcp;
 /// </summary>
 public static partial class PlainTextSanitizer
 {
+    [GeneratedRegex(@"<!--[\s\S]*?-->", RegexOptions.IgnoreCase)]
+    private static partial Regex HtmlCommentPattern();
+
     [GeneratedRegex(@"<[^>]+>", RegexOptions.IgnoreCase)]
     private static partial Regex HtmlTagPattern();
 
@@ -23,13 +26,17 @@ public static partial class PlainTextSanitizer
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
-        var text = value;
+        var text = DecodeEntities(value, maxPasses: 2);
+
+        if (HtmlCommentPattern().IsMatch(text))
+            text = HtmlCommentPattern().Replace(text, " ");
 
         if (HtmlTagPattern().IsMatch(text))
             text = HtmlTagPattern().Replace(text, " ");
 
-        if (text.Contains('&'))
-            text = WebUtility.HtmlDecode(text);
+        // Decode once more to handle any remaining entities in plain text.
+        text = DecodeEntities(text, maxPasses: 1);
+        text = text.Replace('\u00A0', ' ');
 
         text = MultipleWhitespacePattern().Replace(text, " ").Trim();
         text = SpaceBeforePunctuationPattern().Replace(text, "$1");
@@ -45,5 +52,19 @@ public static partial class PlainTextSanitizer
         return plain.Length <= maxLength
             ? plain
             : plain[..maxLength].TrimEnd() + "…";
+    }
+
+    private static string DecodeEntities(string input, int maxPasses)
+    {
+        var text = input;
+        for (var i = 0; i < maxPasses && text.Contains('&'); i++)
+        {
+            var decoded = WebUtility.HtmlDecode(text);
+            if (string.Equals(decoded, text, StringComparison.Ordinal))
+                break;
+            text = decoded;
+        }
+
+        return text;
     }
 }
