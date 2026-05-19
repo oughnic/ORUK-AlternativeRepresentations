@@ -6,6 +6,7 @@ Class library containing the ORUK → Schema.org transformation pipeline.
 
 - Transform a fully-populated `OrukService` (and its navigation graph) into a Schema.org JSON-LD `@graph` document (`SchemaOrgDocument`).
 - Produce a field-by-field **VODIM data-quality report** (`TransformationReport`) alongside every transformation.
+- Provide shared plain-text normalization helpers for ORUK narrative fields (`OrukPlainText`) and model-level convenience extensions (for example, `service.DescriptionPlain()`).
 
 ## Key Namespaces
 
@@ -13,6 +14,7 @@ Class library containing the ORUK → Schema.org transformation pipeline.
 |-----------|---------|
 | `OrukTransformer.Core.Mapping` | Transformer interface, implementation, options, and result types |
 | `OrukTransformer.Core.Vodim` | VODIM classification enum, field record, and report accumulator |
+| `OrukTransformer.Core` | Shared plain-text normalization (`OrukPlainText`) and ORUK model extension methods |
 
 ## Entry Point
 

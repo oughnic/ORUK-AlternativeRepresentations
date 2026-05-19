@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 
@@ -111,9 +112,7 @@ public sealed class OrukOrganizationTool(
                 feed_name = r.Item2.DisplayName,
                 name = org.Name,
                 alternate_name = org.AlternateName,
-                description = org.Description is { Length: > 0 }
-                    ? (org.Description.Length > 300 ? org.Description[..300].TrimEnd() + "…" : org.Description)
-                    : null,
+                description = OrukPlainText.ToPlainTextAndTruncate(org.Description, 300),
                 legal_status = org.LegalStatus,
                 year_incorporated = org.YearIncorporated,
                 email = org.Email ?? contact?.Email,
@@ -177,8 +176,8 @@ public sealed class OrukOrganizationTool(
         // Build contacts list
         var contacts = org.Contacts.Select(c => new
         {
-            name = c.Name,
-            title = c.Title,
+            name = OrukPlainText.ToPlainText(c.Name),
+            title = OrukPlainText.ToPlainText(c.Title),
             email = c.Email,
             phone = org.Phones.Select(p => p.Number).FirstOrDefault()
         }).ToList();
@@ -208,9 +207,7 @@ public sealed class OrukOrganizationTool(
                 id = s.Id,
                 name = s.Name,
                 status = s.Status,
-                description = s.Description is { Length: > 0 }
-                    ? (s.Description.Length > 150 ? s.Description[..150].TrimEnd() + "…" : s.Description)
-                    : null
+                description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 150)
             }).ToList();
         }
 
@@ -231,9 +228,7 @@ public sealed class OrukOrganizationTool(
                             id = svc.Id,
                             name = svc.Name,
                             status = svc.Status,
-                            description = svc.Description is { Length: > 0 }
-                                ? (svc.Description.Length > 150 ? svc.Description[..150].TrimEnd() + "…" : svc.Description)
-                                : null
+                            description = OrukPlainText.ToPlainTextAndTruncate(svc.Description, 150)
                         });
                     }
                 }
@@ -259,7 +254,7 @@ public sealed class OrukOrganizationTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             name = org.Name,
             alternate_name = org.AlternateName,
-            description = org.Description,
+            description = OrukPlainText.ToPlainText(org.Description),
             legal_status = org.LegalStatus,
             year_incorporated = org.YearIncorporated,
             email = org.Email,
@@ -272,7 +267,10 @@ public sealed class OrukOrganizationTool(
                 ? phones
                 : null,
             locations = locations.Count > 0 ? locations : null,
-            funding = org.Funding.Select(f => f.Source).Where(s => !string.IsNullOrWhiteSpace(s)).ToList()
+            funding = org.Funding
+                .Select(f => OrukPlainText.ToPlainText(f.Source))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList()
                 is { Count: > 0 } funding ? funding : null,
             services = embeddedServices ?? fetchedServices
         };

@@ -7,6 +7,8 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
 using OrukModels.Models;
+using OrukTransformer.Core;
+using OrukTransformer.Mcp;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 using OrukTransformer.Mcp.Taxonomy;
@@ -204,9 +206,7 @@ public sealed class OrukServiceSearchTool(
             feed_url = r.FeedBaseUrl.ToString(),
             feed_name = r.FeedName,
             name = s.Name,
-            description = string.IsNullOrWhiteSpace(s.Description)
-                ? null
-                : TruncateDescription(s.Description, 200),
+            description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 200),
             status = s.Status,
             url = s.Url,
             email = s.Email,
@@ -232,7 +232,4 @@ public sealed class OrukServiceSearchTool(
             .Where(p => !string.IsNullOrWhiteSpace(p));
         return string.Join(", ", parts);
     }
-
-    private static string TruncateDescription(string text, int maxLength) =>
-        text.Length <= maxLength ? text : text[..maxLength].TrimEnd() + "…";
 }

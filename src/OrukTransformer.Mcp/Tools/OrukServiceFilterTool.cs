@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
 using OrukModels.Models;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 using OrukTransformer.Mcp.Taxonomy;
@@ -284,14 +285,14 @@ public sealed class OrukServiceFilterTool(
             var loc = s.ServiceAtLocations.Select(sal => sal.Location).FirstOrDefault(l => l is not null);
             var addr = loc?.PhysicalAddresses.FirstOrDefault();
             var languages = s.Languages
-                .Select(l => l.Name ?? l.Code)
+                .Select(l => OrukPlainText.ToPlainText(l.Name ?? l.Code))
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .ToList();
             var accessibility = s.ServiceAtLocations
                 .Select(sal => sal.Location)
                 .Where(l => l is not null)
                 .SelectMany(l => l!.Accessibility)
-                .Select(a => a.Description)
+                .Select(a => OrukPlainText.ToPlainText(a.Description))
                 .Where(d => !string.IsNullOrWhiteSpace(d))
                 .Distinct()
                 .ToList();
@@ -302,9 +303,7 @@ public sealed class OrukServiceFilterTool(
                 feed_url = r.FeedBaseUrl.ToString(),
                 feed_name = r.FeedName,
                 name = s.Name,
-                description = s.Description is { Length: > 0 }
-                    ? (s.Description.Length > 200 ? s.Description[..200].TrimEnd() + "…" : s.Description)
-                    : null,
+                description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 200),
                 status = s.Status,
                 url = s.Url,
                 email = s.Email,

@@ -70,6 +70,9 @@ public sealed class OrukServiceClient : IOrukServiceClient
         // filtering instead.
         string? serverProximity = resolvedProximity;
         bool retriedWithoutServerProximity = false;
+        bool appendServicesPath = false;
+        bool triedServicesSuffixFallback = feedBaseUrl.AbsolutePath.TrimEnd('/')
+            .EndsWith("/services", StringComparison.OrdinalIgnoreCase);
 
         // RPDE mode: when a feed returns next_url we follow cursor links instead
         // of incrementing page numbers.
@@ -98,7 +101,7 @@ public sealed class OrukServiceClient : IOrukServiceClient
             else
             {
                 url = OrukUrlBuilder.BuildServicesUrl(
-                    feedBaseUrl, query, currentPage, pageSize, serverProximity);
+                    feedBaseUrl, query, currentPage, pageSize, serverProximity, appendServicesPath);
             }
 
             OrukPage<OrukService>? page = null;
@@ -109,6 +112,18 @@ public sealed class OrukServiceClient : IOrukServiceClient
                 if (!response.IsSuccessStatusCode)
                 {
                     LogHttpError(response, currentPage, url);
+                    if (firstPage && !triedServicesSuffixFallback)
+                    {
+                        _logger.LogInformation(
+                            "First-page request to {Url} failed. Retrying feed {BaseUrl} with '/services' suffix.",
+                            url, feedBaseUrl);
+                        appendServicesPath = true;
+                        triedServicesSuffixFallback = true;
+                        currentPage = 1;
+                        pagesFetched = 0;
+                        rpdeNextUrl = null;
+                        continue;
+                    }
                     if (firstPage) yield break;
                     if (rpdeNextUrl is not null) break;
                     currentPage++;
@@ -120,6 +135,18 @@ public sealed class OrukServiceClient : IOrukServiceClient
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
             {
+                if (firstPage && !triedServicesSuffixFallback)
+                {
+                    _logger.LogWarning(ex,
+                        "First-page request to {Url} failed. Retrying feed {BaseUrl} with '/services' suffix.",
+                        url, feedBaseUrl);
+                    appendServicesPath = true;
+                    triedServicesSuffixFallback = true;
+                    currentPage = 1;
+                    pagesFetched = 0;
+                    rpdeNextUrl = null;
+                    continue;
+                }
                 if (firstPage)
                 {
                     _logger.LogError(ex, "Fatal error fetching first page from {Url}. Aborting.", url);
@@ -135,6 +162,19 @@ public sealed class OrukServiceClient : IOrukServiceClient
 
             if (page is null || page.Contents.Count == 0)
             {
+                if (firstPage && !triedServicesSuffixFallback)
+                {
+                    _logger.LogInformation(
+                        "Feed {BaseUrl} returned no results from {Url}. Retrying with '/services' suffix.",
+                        feedBaseUrl, url);
+                    appendServicesPath = true;
+                    triedServicesSuffixFallback = true;
+                    currentPage = 1;
+                    pagesFetched = 0;
+                    rpdeNextUrl = null;
+                    continue;
+                }
+
                 // RPDE feeds may return an empty page with a next_url — stop only
                 // when the next_url is also absent (end of feed).
                 if (page?.NextUrl is not null)

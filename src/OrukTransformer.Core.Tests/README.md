@@ -7,6 +7,7 @@ xUnit test project for `OrukTransformer.Core`.
 | Test class | What is tested |
 |------------|---------------|
 | `Mapping/OrukToSchemaOrgTransformerTests` | Full transformer; 54 tests |
+| `PlainTextNormalizationTests` | Shared plain-text normalizer and model extension methods |
 
 ### Test categories
 

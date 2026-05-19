@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Taxonomy;
 
@@ -57,7 +58,8 @@ public sealed class OrukTaxonomyTool(
             terms = terms
                 .Where(t =>
                     (t.Name?.Contains(lowerFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (t.Description?.Contains(lowerFilter, StringComparison.OrdinalIgnoreCase) ?? false))
+                    (OrukPlainText.ToPlainText(t.Description)
+                        ?.Contains(lowerFilter, StringComparison.OrdinalIgnoreCase) ?? false))
                 .ToList()
                 .AsReadOnly();
 
@@ -74,7 +76,7 @@ public sealed class OrukTaxonomyTool(
             code = t.Code,
             taxonomy = t.Taxonomy,
             parent_id = t.ParentId,
-            description = t.Description
+            description = OrukPlainText.ToPlainText(t.Description)
         }).ToList();
 
         logger.LogInformation(
