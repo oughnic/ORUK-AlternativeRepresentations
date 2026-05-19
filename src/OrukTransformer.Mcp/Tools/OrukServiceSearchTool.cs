@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
 using OrukModels.Models;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
@@ -205,7 +206,7 @@ public sealed class OrukServiceSearchTool(
             feed_url = r.FeedBaseUrl.ToString(),
             feed_name = r.FeedName,
             name = s.Name,
-            description = PlainTextSanitizer.ToPlainTextAndTruncate(s.Description, 200),
+            description = OrukPlainText.ToPlainTextAndTruncate(s.DescriptionPlain(), 200),
             status = s.Status,
             url = s.Url,
             email = s.Email,
