@@ -6,7 +6,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 This project implements an MCP server using the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It exposes thirteen tools that an AI agent can call to help a user find community services, understand eligibility, and get location and contact details.
 
-Service and organisation narrative fields are normalised to plain text before being returned (HTML markup stripped, entities decoded, and literal `\u003C...\u003E` style escapes normalised) so MCP responses remain readable without extra post-processing by the calling agent. The normalization logic is shared from `OrukTransformer.Core`.
+Service and organisation narrative fields are normalised to plain text before being returned (HTML markup stripped, entities decoded, and literal `\u003C...\u003E` style escapes normalised) so MCP responses remain readable without extra post-processing by the calling agent. The normalization logic is provided by `OrukTransformer.Core.OrukPlainText` and called directly at MCP response mapping points.
 
 ## MCP Tools
 
@@ -111,7 +111,6 @@ npx @modelcontextprotocol/inspector dotnet run --project src/OrukTransformer.Mcp
 OrukTransformer.Mcp/
 ├── Program.cs                  # Host setup, DI wiring, MCP server startup
 ├── McpOptions.cs               # Configuration options (bound from appsettings.json)
-├── PlainTextSanitizer.cs       # Compatibility wrapper around OrukTransformer.Core plain-text normalization
 ├── appsettings.json            # Default configuration
 ├── Config/
 │   └── FeedsLoader.cs          # Parses feeds.json into feed definitions with labels/aliases

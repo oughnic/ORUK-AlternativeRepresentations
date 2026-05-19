@@ -206,7 +206,7 @@ public sealed class OrukServiceSearchTool(
             feed_url = r.FeedBaseUrl.ToString(),
             feed_name = r.FeedName,
             name = s.Name,
-            description = OrukPlainText.ToPlainTextAndTruncate(s.DescriptionPlain(), 200),
+            description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 200),
             status = s.Status,
             url = s.Url,
             email = s.Email,

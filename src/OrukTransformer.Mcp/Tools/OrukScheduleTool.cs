@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
-using OrukTransformer.Mcp;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukModels.Models;
 
@@ -112,7 +112,7 @@ public sealed class OrukScheduleTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             has_schedule_data = hasScheduleData,
             schedule_groups = scheduleGroups.Count > 0 ? scheduleGroups : null,
-            alert = PlainTextSanitizer.ToPlainText(service.Alert)
+            alert = OrukPlainText.ToPlainText(service.Alert)
         }, JsonOptions);
     }
 
@@ -143,15 +143,15 @@ public sealed class OrukScheduleTool(
 
             result.Add(new
             {
-                description = PlainTextSanitizer.ToPlainText(s.Description),
+                description = OrukPlainText.ToPlainText(s.Description),
                 days = FormatDays(s.ByDay),
                 opens_at = s.OpensAt,
                 closes_at = s.ClosesAt,
                 recurrence = FormatRecurrence(s),
                 valid_from = s.ValidFrom,
                 valid_to = s.ValidTo,
-                attending_type = PlainTextSanitizer.ToPlainText(s.AttendingType),
-                notes = PlainTextSanitizer.ToPlainText(s.Notes),
+                attending_type = OrukPlainText.ToPlainText(s.AttendingType),
+                notes = OrukPlainText.ToPlainText(s.Notes),
                 schedule_link = s.ScheduleLink
             });
         }

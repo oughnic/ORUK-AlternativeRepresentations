@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
-using OrukTransformer.Mcp;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 using OrukTransformer.Mcp.Taxonomy;
@@ -161,7 +161,7 @@ public sealed class OrukRecentlyUpdatedTool(
                 feed_url = r.FeedBaseUrl.ToString(),
                 feed_name = r.FeedName,
                 name = s.Name,
-                description = PlainTextSanitizer.ToPlainTextAndTruncate(s.Description, 200),
+                description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 200),
                 status = s.Status,
                 last_modified = s.LastModified,
                 url = s.Url,

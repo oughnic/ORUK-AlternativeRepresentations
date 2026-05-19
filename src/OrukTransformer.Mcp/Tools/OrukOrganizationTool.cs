@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using OrukApiClient;
-using OrukTransformer.Mcp;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 using OrukTransformer.Mcp.Models;
 
@@ -112,7 +112,7 @@ public sealed class OrukOrganizationTool(
                 feed_name = r.Item2.DisplayName,
                 name = org.Name,
                 alternate_name = org.AlternateName,
-                description = PlainTextSanitizer.ToPlainTextAndTruncate(org.Description, 300),
+                description = OrukPlainText.ToPlainTextAndTruncate(org.Description, 300),
                 legal_status = org.LegalStatus,
                 year_incorporated = org.YearIncorporated,
                 email = org.Email ?? contact?.Email,
@@ -176,8 +176,8 @@ public sealed class OrukOrganizationTool(
         // Build contacts list
         var contacts = org.Contacts.Select(c => new
         {
-            name = PlainTextSanitizer.ToPlainText(c.Name),
-            title = PlainTextSanitizer.ToPlainText(c.Title),
+            name = OrukPlainText.ToPlainText(c.Name),
+            title = OrukPlainText.ToPlainText(c.Title),
             email = c.Email,
             phone = org.Phones.Select(p => p.Number).FirstOrDefault()
         }).ToList();
@@ -207,7 +207,7 @@ public sealed class OrukOrganizationTool(
                 id = s.Id,
                 name = s.Name,
                 status = s.Status,
-                description = PlainTextSanitizer.ToPlainTextAndTruncate(s.Description, 150)
+                description = OrukPlainText.ToPlainTextAndTruncate(s.Description, 150)
             }).ToList();
         }
 
@@ -228,7 +228,7 @@ public sealed class OrukOrganizationTool(
                             id = svc.Id,
                             name = svc.Name,
                             status = svc.Status,
-                            description = PlainTextSanitizer.ToPlainTextAndTruncate(svc.Description, 150)
+                            description = OrukPlainText.ToPlainTextAndTruncate(svc.Description, 150)
                         });
                     }
                 }
@@ -254,7 +254,7 @@ public sealed class OrukOrganizationTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             name = org.Name,
             alternate_name = org.AlternateName,
-            description = PlainTextSanitizer.ToPlainText(org.Description),
+            description = OrukPlainText.ToPlainText(org.Description),
             legal_status = org.LegalStatus,
             year_incorporated = org.YearIncorporated,
             email = org.Email,
@@ -268,7 +268,7 @@ public sealed class OrukOrganizationTool(
                 : null,
             locations = locations.Count > 0 ? locations : null,
             funding = org.Funding
-                .Select(f => PlainTextSanitizer.ToPlainText(f.Source))
+                .Select(f => OrukPlainText.ToPlainText(f.Source))
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .ToList()
                 is { Count: > 0 } funding ? funding : null,

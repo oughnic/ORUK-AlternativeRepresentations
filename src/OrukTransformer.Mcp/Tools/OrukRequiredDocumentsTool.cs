@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
-using OrukTransformer.Mcp;
+using OrukTransformer.Core;
 using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -67,7 +67,7 @@ public sealed class OrukRequiredDocumentsTool(
         var documents = service.RequiredDocuments
             .Select(d => new
             {
-                document = PlainTextSanitizer.ToPlainText(d.Document),
+                document = OrukPlainText.ToPlainText(d.Document),
                 uri = d.Uri
             })
             .Where(d => !string.IsNullOrWhiteSpace(d.document))
@@ -77,7 +77,7 @@ public sealed class OrukRequiredDocumentsTool(
         var eligibilityConditions = service.Eligibility
             .Select(e => new
             {
-                description = PlainTextSanitizer.ToPlainText(e.Description),
+                description = OrukPlainText.ToPlainText(e.Description),
                 minimum_age = e.MinimumAge,
                 maximum_age = e.MaximumAge
             })
@@ -120,11 +120,11 @@ public sealed class OrukRequiredDocumentsTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             has_requirements_data = hasRequirementsData,
             required_documents = documents.Count > 0 ? documents : null,
-            application_process = PlainTextSanitizer.ToPlainText(service.ApplicationProcess),
-            eligibility_description = PlainTextSanitizer.ToPlainText(service.EligibilityDescription),
+            application_process = OrukPlainText.ToPlainText(service.ApplicationProcess),
+            eligibility_description = OrukPlainText.ToPlainText(service.EligibilityDescription),
             eligibility_conditions = eligibilityConditions.Count > 0 ? eligibilityConditions : null,
             age_range = ageRange,
-            wait_time = PlainTextSanitizer.ToPlainText(service.WaitTime)
+            wait_time = OrukPlainText.ToPlainText(service.WaitTime)
         }, JsonOptions);
     }
 

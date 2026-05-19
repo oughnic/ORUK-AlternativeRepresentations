@@ -135,7 +135,7 @@ public sealed class OrukServiceDetailTool(
 
         // Languages
         var languages = service.Languages
-            .Select(l => PlainTextSanitizer.ToPlainText(l.Name ?? l.Code))
+            .Select(l => OrukPlainText.ToPlainText(l.Name ?? l.Code))
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
 
