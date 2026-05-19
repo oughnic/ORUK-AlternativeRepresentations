@@ -15,7 +15,8 @@ public interface IOrukServiceClient
     /// </summary>
     /// <param name="feedBaseUrl">
     /// The base URL of the ORUK v3 API, e.g. <c>https://example.org/o/OpenReferralService/v3</c>.
-    /// The <c>/services</c> path is appended automatically.
+    /// The client first tries the supplied URL as-is; if no first-page results are found,
+    /// it retries with a <c>/services</c> suffix automatically.
     /// </param>
     /// <param name="query">Typed filter and pagination parameters.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

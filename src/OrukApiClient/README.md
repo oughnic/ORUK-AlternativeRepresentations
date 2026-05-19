@@ -24,6 +24,7 @@ This library provides typed interfaces and implementations for querying ORUK v3 
 - **Receive liberally:** Missing or unexpected fields are tolerated; a fallback case-insensitive deserialiser is tried before failing.
 - **Client-side filtering fallback:** Taxonomy, age range, and cost filters are applied client-side if the endpoint doesn't support them as query parameters.
 - **Base URL normalisation:** Both `https://example.org/v3` and `https://example.org/v3/services` are accepted as feed base URLs; the `/services` suffix is stripped automatically.
+- **Endpoint discovery fallback:** Service search first tries the configured feed URL as-is; if first-page retrieval returns nothing (or fails), it retries with `/services` appended.
 - **No transformation dependencies:** This library references only `OrukModels`, `Microsoft.Extensions.Http`, and `Microsoft.Extensions.Logging.Abstractions`.
 
 ## Registration (DI)

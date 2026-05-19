@@ -8,7 +8,7 @@ namespace OrukApiClient.Internal;
 internal static class OrukUrlBuilder
 {
     /// <summary>
-    /// Returns the /services list URL, appending pagination and keyword parameters
+    /// Returns a services list URL, appending pagination and keyword parameters
     /// derived from the given query.
     /// </summary>
     /// <param name="feedBaseUrl">Base URL of the ORUK feed.</param>
@@ -26,9 +26,12 @@ internal static class OrukUrlBuilder
         OrukServiceQuery query,
         int page,
         int perPage,
-        string? resolvedProximity = null)
+        string? resolvedProximity = null,
+        bool appendServicesPath = true)
     {
-        var baseServices = new Uri(EnsureBase(feedBaseUrl) + "/services");
+        var baseServices = appendServicesPath
+            ? new Uri(EnsureBase(feedBaseUrl) + "/services")
+            : feedBaseUrl;
         var builder = new UriBuilder(baseServices);
         var qs = System.Web.HttpUtility.ParseQueryString(builder.Query);
 

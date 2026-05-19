@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp;
 using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -71,7 +72,7 @@ public sealed class OrukServiceDetailTool(
             .Where(s => s.Description is not null || s.OpensAt is not null)
             .Select(s => new
             {
-                description = s.Description,
+                description = PlainTextSanitizer.ToPlainText(s.Description),
                 days = s.ByDay,
                 opens = s.OpensAt,
                 closes = s.ClosesAt,
@@ -85,7 +86,7 @@ public sealed class OrukServiceDetailTool(
             .Select(sal => sal.Location)
             .Where(l => l is not null)
             .SelectMany(l => l!.Accessibility)
-            .Select(a => a.Description)
+            .Select(a => PlainTextSanitizer.ToPlainText(a.Description))
             .Where(d => !string.IsNullOrWhiteSpace(d))
             .Distinct()
             .ToList();
@@ -116,7 +117,7 @@ public sealed class OrukServiceDetailTool(
 
         // Eligibility
         var eligibility = service.Eligibility
-            .Select(e => e.Description)
+            .Select(e => PlainTextSanitizer.ToPlainText(e.Description))
             .Where(d => !string.IsNullOrWhiteSpace(d))
             .ToList();
 
@@ -124,16 +125,16 @@ public sealed class OrukServiceDetailTool(
         var cost = service.CostOptions
             .Select(c => new
             {
-                option = c.Option,
+                option = PlainTextSanitizer.ToPlainText(c.Option),
                 amount = c.Amount,
                 currency = c.Currency,
-                description = c.AmountDescription
+                description = PlainTextSanitizer.ToPlainText(c.AmountDescription)
             })
             .ToList();
 
         // Languages
         var languages = service.Languages
-            .Select(l => l.Name ?? l.Code)
+            .Select(l => PlainTextSanitizer.ToPlainText(l.Name ?? l.Code))
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
 
@@ -144,15 +145,15 @@ public sealed class OrukServiceDetailTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             name = service.Name,
             alternate_name = service.AlternateName,
-            description = service.Description,
+            description = PlainTextSanitizer.ToPlainText(service.Description),
             status = service.Status,
             url = service.Url,
             email = service.Email,
-            alert = service.Alert,
+            alert = PlainTextSanitizer.ToPlainText(service.Alert),
             organization = service.Organization is null ? null : new
             {
                 name = service.Organization.Name,
-                description = service.Organization.Description,
+                description = PlainTextSanitizer.ToPlainText(service.Organization.Description),
                 email = service.Organization.Email,
                 url = service.Organization.Url
             },
@@ -161,11 +162,11 @@ public sealed class OrukServiceDetailTool(
             opening_times = openingTimes.Count > 0 ? openingTimes : null,
             eligibility = eligibility.Count > 0 ? eligibility : null,
             cost = cost.Count > 0 ? cost : null,
-            fees_description = service.FeesDescription,
+            fees_description = PlainTextSanitizer.ToPlainText(service.FeesDescription),
             languages = languages.Count > 0 ? languages : null,
             accessibility = accessibility.Count > 0 ? accessibility : null,
-            application_process = service.ApplicationProcess,
-            interpretation_services = service.InterpretationServices,
+            application_process = PlainTextSanitizer.ToPlainText(service.ApplicationProcess),
+            interpretation_services = PlainTextSanitizer.ToPlainText(service.InterpretationServices),
             minimum_age = service.MinimumAge,
             maximum_age = service.MaximumAge,
             last_modified = service.LastModified

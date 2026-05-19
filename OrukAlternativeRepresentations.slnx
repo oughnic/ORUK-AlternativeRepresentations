@@ -1,16 +1,20 @@
 <Solution>
   <Folder Name="/code/">
-    <Project Path="code/OrukModels/OrukModels.csproj" />
     <Project Path="code/OrukModels.Tests/OrukModels.Tests.csproj" />
+    <Project Path="code/OrukModels/OrukModels.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/OrukTransformer.Core/OrukTransformer.Core.csproj" />
+    <Project Path="src/OrukApiClient/OrukApiClient.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="src/OrukTransformer.Cli.Tests/OrukTransformer.Cli.Tests.csproj">
       <Build Solution="Debug|*" Project="false" />
     </Project>
     <Project Path="src/OrukTransformer.Cli/OrukTransformer.Cli.csproj" />
     <Project Path="src/OrukTransformer.Core.Tests/OrukTransformer.Core.Tests.csproj" />
-    <Project Path="src/OrukApiClient/OrukApiClient.csproj" />
-    <Project Path="src/OrukTransformer.Mcp/OrukTransformer.Mcp.csproj" />
+    <Project Path="src/OrukTransformer.Core/OrukTransformer.Core.csproj" />
+    <Project Path="src/OrukTransformer.Mcp/OrukTransformer.Mcp.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
   </Folder>
 </Solution>

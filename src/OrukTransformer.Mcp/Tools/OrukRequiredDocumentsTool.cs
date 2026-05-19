@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using OrukApiClient;
+using OrukTransformer.Mcp;
 using OrukTransformer.Mcp.Config;
 
 namespace OrukTransformer.Mcp.Tools;
@@ -64,19 +65,23 @@ public sealed class OrukRequiredDocumentsTool(
 
         // Required documents
         var documents = service.RequiredDocuments
-            .Where(d => !string.IsNullOrWhiteSpace(d.Document))
-            .Select(d => new { document = d.Document, uri = d.Uri })
+            .Select(d => new
+            {
+                document = PlainTextSanitizer.ToPlainText(d.Document),
+                uri = d.Uri
+            })
+            .Where(d => !string.IsNullOrWhiteSpace(d.document))
             .ToList();
 
         // Eligibility conditions (structured + free-text)
         var eligibilityConditions = service.Eligibility
-            .Where(e => !string.IsNullOrWhiteSpace(e.Description))
             .Select(e => new
             {
-                description = e.Description,
+                description = PlainTextSanitizer.ToPlainText(e.Description),
                 minimum_age = e.MinimumAge,
                 maximum_age = e.MaximumAge
             })
+            .Where(e => !string.IsNullOrWhiteSpace(e.description))
             .ToList<object>();
 
         // Age range from the service itself (HSDS v3 top-level fields)
@@ -115,15 +120,11 @@ public sealed class OrukRequiredDocumentsTool(
             feed_name = feedRegistry.GetDisplayName(feedUri),
             has_requirements_data = hasRequirementsData,
             required_documents = documents.Count > 0 ? documents : null,
-            application_process = string.IsNullOrWhiteSpace(service.ApplicationProcess)
-                ? null
-                : service.ApplicationProcess,
-            eligibility_description = string.IsNullOrWhiteSpace(service.EligibilityDescription)
-                ? null
-                : service.EligibilityDescription,
+            application_process = PlainTextSanitizer.ToPlainText(service.ApplicationProcess),
+            eligibility_description = PlainTextSanitizer.ToPlainText(service.EligibilityDescription),
             eligibility_conditions = eligibilityConditions.Count > 0 ? eligibilityConditions : null,
             age_range = ageRange,
-            wait_time = string.IsNullOrWhiteSpace(service.WaitTime) ? null : service.WaitTime
+            wait_time = PlainTextSanitizer.ToPlainText(service.WaitTime)
         }, JsonOptions);
     }
 

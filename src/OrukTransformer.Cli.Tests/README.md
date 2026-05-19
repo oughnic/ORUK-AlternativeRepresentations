@@ -11,6 +11,7 @@ xUnit unit-test project for `OrukTransformer.Cli`.
 | `VodimReporterTests` | Summary text formatting for zero, one, and many reports |
 | `RunCommandTests` | Pipeline orchestration behaviour, including VODIM report suppression when writing JSON-LD to stdout |
 | `CliOutputModePolicyTests` | Stdout-only mode option-policy validation and effective log-level resolution |
+| `OrukServiceClientTests` | Feed endpoint discovery fallback: try configured base URL first, then retry with `/services` when first-page results are empty |
 
 ## Running Tests
 
